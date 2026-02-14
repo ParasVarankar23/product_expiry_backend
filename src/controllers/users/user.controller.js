@@ -36,6 +36,10 @@ export const publicRegisterUser = async (req, res) => {
         if (!company) {
             return res.status(400).json({ success: false, message: "Invalid company code. Please enter a valid company code." });
         }
+        // Check company plan status
+        if (company.planStatus !== "active") {
+            return res.status(403).json({ success: false, message: "Company subscription inactive. Please contact administrator." });
+        }
         // Check for duplicate email in company
         const existing = await User.findOne({ email: email.toLowerCase(), companyId: company._id });
         if (existing) {

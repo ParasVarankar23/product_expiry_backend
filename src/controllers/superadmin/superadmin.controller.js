@@ -9,7 +9,6 @@ import { generatePassword } from "../../utils/passwordGenerator.utils.js";
 
 // ===== Helper Functions =====
 // Generate a unique company code (e.g., COMP-XXXX)
-import companyModel from "../../models/users/company.model.js";
 function generateCompanyCode() {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let code = "";
@@ -18,7 +17,6 @@ function generateCompanyCode() {
 }
 
 // 1️⃣ SUPERADMIN: CREATE COMPANY
-import User from "../../models/users/user.model.js";
 
 
 function generateOtp() {
@@ -37,50 +35,7 @@ function generateToken(superadmin) {
     );
 }
 
-export const createCompany = async (req, res) => {
-    try {
-        const { ownerName, companyName, ownerEmail } = req.body;
-        if (!ownerName || !companyName || !ownerEmail) {
-            return res.status(400).json({ success: false, message: "Owner name, company name, and owner email are required" });
-        }
-        // Only allow superadmin (assume req.superadmin._id is set by auth middleware)
-        const createdBy = req.superadmin?._id;
-        if (!createdBy) {
-            return res.status(401).json({ success: false, message: "Unauthorized" });
-        }
-        // Generate unique company code
-        let companyCode;
-        let exists = true;
-        while (exists) {
-            companyCode = generateCompanyCode();
-            exists = await companyModel.findOne({ companyCode });
-        }
-        // Create company
-        const company = await companyModel.create({
-            companyName,
-            companyCode,
-            ownerName,
-            ownerEmail,
-            createdBy
-        });
-        // Generate password for owner (admin)
-        const password = generatePassword(ownerName);
-        // Create owner as first admin user for the company
-        const adminUser = await User.create({
-            name: ownerName,
-            email: ownerEmail.toLowerCase(),
-            password,
-            role: "admin",
-            companyId: company._id,
-            isVerified: true
-        });
-        // Notify owner via email with company code and password
-        await sendGeneratedPassword(ownerEmail, password, companyCode);
-        return res.status(201).json({ success: true, companyCode: company.companyCode, message: "Company created and owner notified via email." });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
-    }
-};
+// ...existing code...
 
 // 1️⃣ REGISTER SUPER ADMIN (OTP BASED)
 export const registerSuperAdmin = async (req, res) => {

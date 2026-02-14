@@ -1,7 +1,6 @@
 import express from "express";
 import {
     changeSuperAdminPassword,
-    createCompany,
     forgotSuperAdminPassword,
     googleLoginSuperAdmin,
     loginSuperAdmin,
@@ -9,6 +8,7 @@ import {
     updateSuperAdminProfile,
     verifySuperAdminOtp,
 } from "../../controllers/superadmin/superadmin.controller.js";
+import { createCompany } from "../../controllers/users/company.controller.js";
 import { protectSuperAdmin } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
