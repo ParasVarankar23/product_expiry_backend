@@ -4,9 +4,12 @@ import dotenv from "dotenv";
 import express from "express";
 import connectDB from "./src/init/db.js";
 import { startExpiryJob } from "./src/jobs/expiry.job.js";
-import dashboardRoute from "./src/routes/dashboard.route.js";
-import productRoute from "./src/routes/product.route.js";
-import userRoute from "./src/routes/user.route.js";
+
+
+import superadminRoute from "./src/routes/superadmin/superadmin.route.js";
+import dashboardRoute from "./src/routes/users/dashboard.route.js";
+import productRoute from "./src/routes/users/product.route.js";
+import userRoute from "./src/routes/users/user.route.js";
 
 dotenv.config();
 connectDB();
@@ -43,9 +46,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 /* ================== ROUTES ================== */
+
 app.use("/api/user", userRoute);
 app.use("/api/product", productRoute);
 app.use("/api/dashboard", dashboardRoute);
+app.use("/api/superadmin", superadminRoute);
 
 /* ================== HEALTH CHECK ================== */
 app.get("/", (req, res) => {

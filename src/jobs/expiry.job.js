@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { checkExpiryProducts } from "../controllers/product.controller.js";
+import { checkExpiryProducts } from "../controllers/users/product.controller.js";
 
 /* ======================================================
    EXPIRY CHECK CRON JOB

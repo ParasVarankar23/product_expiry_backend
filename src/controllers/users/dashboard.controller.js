@@ -1,4 +1,4 @@
-import Product from "../models/product.model.js";
+import Product from "../../models/users/product.model.js";
 
 /* ======================================================
    ADMIN DASHBOARD

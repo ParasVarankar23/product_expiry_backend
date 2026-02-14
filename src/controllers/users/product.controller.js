@@ -1,10 +1,10 @@
-import Product from "../models/product.model.js";
-import User from "../models/user.model.js";
-import { generateProductAdvice } from "../services/gemini.service.js";
+import Product from "../../models/users/product.model.js";
+import User from "../../models/users/user.model.js";
+import { generateProductAdvice } from "../../services/gemini.service.js";
 import {
     sendBatchNotifications
-} from "../services/notification.service.js";
-import { uploadBase64File } from "../utils/cloudinary.utils.js";
+} from "../../services/notification.service.js";
+import { uploadBase64File } from "../../utils/cloudinary.utils.js";
 
 /* ======================================================
    ADD PRODUCT (ADMIN / STORE MANAGER)

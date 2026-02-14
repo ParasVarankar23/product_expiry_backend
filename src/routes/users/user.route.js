@@ -1,20 +1,20 @@
 import express from "express";
 
 import {
-    changePassword,
-    forgotPassword,
-    getProfile,
-    googleLogin,
-    loginUser,
-    registerUser,
-    resetPassword,
-    setPassword,
-    updateProfile,
-    verifyEmailOtp,
-    verifyForgotOtp,
-} from "../controllers/user.controller.js";
+   changePassword,
+   forgotPassword,
+   getProfile,
+   googleLogin,
+   loginUser,
+   registerUser,
+   resetPassword,
+   setPassword,
+   updateProfile,
+   verifyEmailOtp,
+   verifyForgotOtp,
+} from "../../controllers/users/user.controller.js";
 
-import { protect } from "../middleware/auth.middleware.js";
+import { protect } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
 

@@ -1,11 +1,11 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import User from "../models/user.model.js";
-import { uploadBase64File } from "../utils/cloudinary.utils.js";
-import { formatPhone } from "../utils/formatPhone.utils.js";
-import { sendMail } from "../utils/mailer.utils.js";
-import { generatePassword } from "../utils/passwordGenerator.utils.js";
+import User from "../../models/users/user.model.js";
+import { uploadBase64File } from "../../utils/cloudinary.utils.js";
+import { formatPhone } from "../../utils/formatPhone.utils.js";
+import { sendMail } from "../../utils/mailer.utils.js";
+import { generatePassword } from "../../utils/passwordGenerator.utils.js";
 /* ======================================================
    TOKEN HELPERS
 ====================================================== */
