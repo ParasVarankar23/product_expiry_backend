@@ -1,6 +1,28 @@
 import jwt from "jsonwebtoken";
 import SuperAdmin from "../models/superadmin/superadmin.model.js";
+import companyModel from "../models/users/company.model.js";
 import User from "../models/users/user.model.js";
+// Protect Company Owner Middleware
+export const protectCompanyOwner = async (req, res, next) => {
+    try {
+        // User must be authenticated
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+        // Find company
+        const company = await companyModel.findById(req.user.companyId);
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Company not found" });
+        }
+        // Check if user is the owner (admin and email matches ownerEmail)
+        if (req.user.role !== "admin" || req.user.email !== company.ownerEmail) {
+            return res.status(403).json({ success: false, message: "Only company owner access allowed" });
+        }
+        next();
+    } catch (error) {
+        return res.status(401).json({ success: false, message: "Not authorized (company owner)" });
+    }
+};
 // Protect SuperAdmin Middleware
 export const protectSuperAdmin = async (req, res, next) => {
     try {

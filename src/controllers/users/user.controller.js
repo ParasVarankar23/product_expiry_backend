@@ -1,11 +1,102 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import companyModel from "../../models/users/company.model.js";
 import User from "../../models/users/user.model.js";
 import { uploadBase64File } from "../../utils/cloudinary.utils.js";
 import { formatPhone } from "../../utils/formatPhone.utils.js";
 import { sendMail } from "../../utils/mailer.utils.js";
 import { generatePassword } from "../../utils/passwordGenerator.utils.js";
+// 1️⃣ PUBLIC REGISTRATION (SELF SIGNUP, EMAIL VERIFIED, PASSWORD EMAILED)
+function generateUserPassword(name) {
+    const symbols = "@!#$";
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const symbol = symbols[Math.floor(Math.random() * symbols.length)];
+    // Username part: first word, capitalized
+    const base = name.split(" ")[0] || "User";
+    return `${base}${base.slice(0, 2)}${randomNum}${symbol}`;
+}
+
+export const publicRegisterUser = async (req, res) => {
+    try {
+        const { name, email, role, companyCode } = req.body;
+        if (!name || !email || !role || !companyCode) {
+            return res.status(400).json({ success: false, message: "Name, email, role, and company code are required." });
+        }
+        // Validate email format
+        if (!/.+@.+\..+/.test(String(email).toLowerCase())) {
+            return res.status(400).json({ success: false, message: "Invalid email address." });
+        }
+        // Block admin role from public registration
+        if (!User.isAdminRoleAllowedPublic(role)) {
+            return res.status(403).json({ success: false, message: "Admin registration is not allowed from public signup." });
+        }
+        // Find company by code
+        const company = await companyModel.findOne({ companyCode: companyCode.toUpperCase(), isActive: true });
+        if (!company) {
+            return res.status(400).json({ success: false, message: "Invalid company code. Please enter a valid company code." });
+        }
+        // Check for duplicate email in company
+        const existing = await User.findOne({ email: email.toLowerCase(), companyId: company._id });
+        if (existing) {
+            return res.status(400).json({ success: false, message: "Email already exists in this company." });
+        }
+        // Generate password
+        const password = generateUserPassword(name);
+        // Create user
+        const user = await User.create({
+            name,
+            email: email.toLowerCase(),
+            password,
+            role,
+            companyId: company._id,
+            isVerified: true
+        });
+        // Send password to email
+        await sendWelcomeEmail(user, password);
+        return res.status(201).json({ success: true, message: "Registration successful. Password sent to your email. You have joined the company." });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 2️⃣ PROTECTED COMPANY REGISTRATION (ADMIN/MANAGER CREATES USER, PASSWORD EMAILED)
+export const registerUserInCompany = async (req, res) => {
+    try {
+        const { name, email, role } = req.body;
+        if (!name || !email || !role) {
+            return res.status(400).json({ success: false, message: "Name, email, and role are required." });
+        }
+        // Only allow admin/manager to create users
+        const creatorRole = req.user.role;
+        if (!User.isAdminRoleAllowedProtected(role, creatorRole)) {
+            return res.status(403).json({ success: false, message: "Only company admin can create another admin." });
+        }
+        // Assign companyId from logged-in user
+        const companyId = req.user.companyId;
+        // Check for duplicate email in company
+        const existing = await User.findOne({ email: email.toLowerCase(), companyId });
+        if (existing) {
+            return res.status(400).json({ success: false, message: "Email already exists in your company." });
+        }
+        // Generate password
+        const password = generateUserPassword(name);
+        // Create user
+        const user = await User.create({
+            name,
+            email: email.toLowerCase(),
+            password,
+            role,
+            companyId,
+            isVerified: true
+        });
+        // Send password to email
+        await sendWelcomeEmail(user, password);
+        return res.status(201).json({ success: true, message: "User registered successfully under your company. Password sent to email." });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
 /* ======================================================
    TOKEN HELPERS
 ====================================================== */
@@ -89,85 +180,6 @@ const sendWelcomeEmail = async (user, password = "") => {
     }
 };
 
-/* ======================================================
-   REGISTER USER
-====================================================== */
-
-export const registerUser = async (req, res, next) => {
-    try {
-        const { name, email, phone } = req.body;
-
-        if (!name || !email) {
-            return res.status(400).json({
-                success: false,
-                message: "Name and email are required",
-            });
-        }
-
-        const normalizedEmail = email.toLowerCase();
-        const formattedPhone = phone ? formatPhone(phone) : null;
-
-        const existingByEmail = await User.findOne({
-            email: normalizedEmail,
-        }).select("+otpHash +otpExpires");
-
-        if (existingByEmail && existingByEmail.emailVerified) {
-            return res.status(400).json({
-                success: false,
-                message: "Email already exists",
-            });
-        }
-
-        if (formattedPhone) {
-            const existingByPhone = await User.findOne({
-                phone: formattedPhone,
-                ...(existingByEmail?._id
-                    ? { _id: { $ne: existingByEmail._id } }
-                    : {}),
-            });
-
-            if (existingByPhone) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Phone already exists",
-                });
-            }
-        }
-
-        const otp = generateOtp();
-        const otpHash = await bcrypt.hash(otp, 10);
-        const otpExpires = getOtpExpiry();
-
-        let user = existingByEmail;
-
-        if (!user) {
-            user = await User.create({
-                name,
-                email: normalizedEmail,
-                phone: formattedPhone,
-                provider: "local",
-                otpHash,
-                otpExpires,
-                emailVerified: false,
-            });
-        } else {
-            user.name = name;
-            user.phone = formattedPhone ?? user.phone;
-            user.otpHash = otpHash;
-            user.otpExpires = otpExpires;
-            await user.save();
-        }
-
-        await sendOtpEmail(user, otp);
-
-        res.status(201).json({
-            success: true,
-            message: "OTP sent to email",
-        });
-    } catch (error) {
-        next(error);
-    }
-};
 
 /* ======================================================
    VERIFY EMAIL OTP

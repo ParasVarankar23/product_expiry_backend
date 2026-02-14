@@ -1,6 +1,7 @@
 import express from "express";
 import {
     changeSuperAdminPassword,
+    createCompany,
     forgotSuperAdminPassword,
     googleLoginSuperAdmin,
     loginSuperAdmin,
@@ -15,6 +16,9 @@ const router = express.Router();
 /* ===== Registration ===== */
 router.post("/register", registerSuperAdmin);
 router.post("/verify-otp", verifySuperAdminOtp);
+
+/* ===== Company Management ===== */
+router.post("/create-company", protectSuperAdmin, createCompany);
 
 /* ===== Login ===== */
 router.post("/login", loginSuperAdmin);
