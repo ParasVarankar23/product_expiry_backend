@@ -2,57 +2,18 @@ import mongoose from "mongoose";
 
 const productSchema = new mongoose.Schema(
     {
-        name: {
-            type: String,
-            required: [true, "Product name is required"],
-            trim: true,
-        },
-
-        category: {
-            type: String,
-            trim: true,
-            default: "",
-        },
-
-        description: {
-            type: String,
-            trim: true,
-            default: "",
-        },
-
-        expiryDate: {
-            type: Date,
-            required: [true, "Expiry date is required"],
-        },
-
-        image: {
-            type: String,
-            default: "",
-        },
-
-        addedBy: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-            required: true,
-        },
-
-        assignedUsers: [
-            {
-                type: mongoose.Schema.Types.ObjectId,
-                ref: "User",
-            },
-        ],
-
-        aiAdvice: {
-            type: String,
-            default: "",
-        },
-
-        status: {
-            type: String,
-            enum: ["active", "expired"],
-            default: "active",
-        },
+        name: { type: String, required: [true, "Product name is required"], trim: true },
+        category: { type: String, trim: true, default: "" },
+        description: { type: String, trim: true, default: "" },
+        packingDate: { type: Date, required: false },
+        expiryDate: { type: Date, required: [true, "Expiry date is required"] },
+        expiredDate: { type: Date, required: false },
+        image: { type: String, default: "" },
+        companyId: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true },
+        addedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+        assignedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+        aiAdvice: { type: String, default: "" },
+        status: { type: String, enum: ["active", "expired"], default: "active" },
     },
     {
         timestamps: true,

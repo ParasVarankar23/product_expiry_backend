@@ -12,8 +12,7 @@ import { uploadBase64File } from "../../utils/cloudinary.utils.js";
 
 export const addProduct = async (req, res, next) => {
     try {
-        const { name, category, description, expiryDate, image, assignedUsers } =
-            req.body;
+        const { name, category, description, packingDate, expiryDate, expiredDate, image, assignedUsers } = req.body;
 
         // Validate required fields
         if (!name || !expiryDate) {
@@ -24,10 +23,10 @@ export const addProduct = async (req, res, next) => {
         }
 
         // Check role authorization
-        if (!["admin", "store_manager"].includes(req.user.role)) {
+        if (!["admin", "manager", "store_manager"].includes(req.user.role)) {
             return res.status(403).json({
                 success: false,
-                message: "Only admin or store manager can add products",
+                message: "Only admin or manager can add products",
             });
         }
 
@@ -48,8 +47,11 @@ export const addProduct = async (req, res, next) => {
             name,
             category: category || "",
             description: description || "",
+            packingDate: packingDate || null,
             expiryDate,
+            expiredDate: expiredDate || null,
             image: imageUrl,
+            companyId: req.user.companyId,
             addedBy: req.user._id,
             assignedUsers: assignedUsers || [],
             aiAdvice,

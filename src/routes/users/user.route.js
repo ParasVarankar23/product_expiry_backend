@@ -15,20 +15,20 @@ import {
    verifyForgotOtp,
 } from "../../controllers/users/user.controller.js";
 
-// Public registration (self signup with company code)
-router.post("/public-register", publicRegisterUser);
-
-// Protected company registration (admin/manager creates user)
 import { protect } from "../../middleware/auth.middleware.js";
-router.post("/register-company", protect, registerUserInCompany);
 
 
 const router = express.Router();
-
 /* ======================================================
    AUTH ROUTES (PUBLIC)
 ====================================================== */
 
+
+// Public registration (self signup with company code)
+router.post("/public-register", publicRegisterUser);
+
+// Protected company registration (admin/manager creates user)
+router.post("/register-company", protect, registerUserInCompany);
 
 // Verify email OTP
 router.post("/verify-email", verifyEmailOtp);
