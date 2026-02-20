@@ -28,7 +28,7 @@ userSchema.statics.isAdminRoleAllowedPublic = function (role) {
 // Static for protected registration: allow admin only if created by company owner
 userSchema.statics.isAdminRoleAllowedProtected = function (role, creatorRole) {
     if (role !== "admin") return true;
-    return creatorRole === "admin"; // Only company admin can create admin
+    return creatorRole === "admin"; // Only company owner/admin can create admin
 };
 
 /* ================= HASH PASSWORD ================= */

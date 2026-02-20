@@ -7,6 +7,7 @@ import {
    googleLogin,
    loginUser,
    publicRegisterUser,
+   registerAdminInCompany,
    registerUserInCompany,
    resetPassword,
    setPassword,
@@ -15,7 +16,7 @@ import {
    verifyForgotOtp,
 } from "../../controllers/users/user.controller.js";
 
-import { protect } from "../../middleware/auth.middleware.js";
+import { protect, protectCompanyOwner } from "../../middleware/auth.middleware.js";
 
 
 const router = express.Router();
@@ -27,8 +28,11 @@ const router = express.Router();
 // Public registration (self signup with company code)
 router.post("/public-register", publicRegisterUser);
 
-// Protected company registration (admin/manager creates user)
+// Protected manager registration (admin creates manager)
 router.post("/register-company", protect, registerUserInCompany);
+
+// Protected admin registration (company owner only)
+router.post("/register-admin", protect, protectCompanyOwner, registerAdminInCompany);
 
 // Verify email OTP
 router.post("/verify-email", verifyEmailOtp);

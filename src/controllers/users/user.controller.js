@@ -18,17 +18,17 @@ function generateUserPassword(name) {
 
 export const publicRegisterUser = async (req, res) => {
     try {
-        const { name, email, role, companyCode } = req.body;
-        if (!name || !email || !role || !companyCode) {
-            return res.status(400).json({ success: false, message: "Name, email, role, and company code are required." });
+        const { name, email, companyCode, role } = req.body;
+        if (!name || !email || !companyCode) {
+            return res.status(400).json({ success: false, message: "Name, email, and company code are required." });
         }
         // Validate email format
         if (!/.+@.+\..+/.test(String(email).toLowerCase())) {
             return res.status(400).json({ success: false, message: "Invalid email address." });
         }
-        // Block admin role from public registration
-        if (!User.isAdminRoleAllowedPublic(role)) {
-            return res.status(403).json({ success: false, message: "Admin registration is not allowed from public signup." });
+        // Only normal users can sign up publicly
+        if (role && role !== "user") {
+            return res.status(403).json({ success: false, message: "Only normal user signup is allowed." });
         }
         // Find company by code
         const company = await companyModel.findOne({ companyCode: companyCode.toUpperCase(), isActive: true });
@@ -51,7 +51,7 @@ export const publicRegisterUser = async (req, res) => {
             name,
             email: email.toLowerCase(),
             password,
-            role,
+            role: "user",
             companyId: company._id,
             isVerified: true
         });
@@ -63,20 +63,27 @@ export const publicRegisterUser = async (req, res) => {
     }
 };
 
-// 2️⃣ PROTECTED COMPANY REGISTRATION (ADMIN/MANAGER CREATES USER, PASSWORD EMAILED)
+// 2️⃣ PROTECTED MANAGER REGISTRATION (ADMIN/OWNER CREATES MANAGER, PASSWORD EMAILED)
 export const registerUserInCompany = async (req, res) => {
     try {
-        const { name, email, role } = req.body;
-        if (!name || !email || !role) {
-            return res.status(400).json({ success: false, message: "Name, email, and role are required." });
+        const { name, email } = req.body;
+        if (!name || !email) {
+            return res.status(400).json({ success: false, message: "Name and email are required." });
         }
-        // Only allow admin/manager to create users
-        const creatorRole = req.user.role;
-        if (!User.isAdminRoleAllowedProtected(role, creatorRole)) {
-            return res.status(403).json({ success: false, message: "Only company admin can create another admin." });
-        }
-        // Assign companyId from logged-in user
+
         const companyId = req.user.companyId;
+        const company = await companyModel.findById(companyId);
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Company not found." });
+        }
+
+        // Only Admin or Owner can create Manager
+        const isOwner = req.user.email === company.ownerEmail;
+        const isAdmin = req.user.role === "admin";
+        if (!(isAdmin && (isOwner || isAdmin))) {
+            return res.status(403).json({ success: false, message: "Only Owner or Admin can create a Manager." });
+        }
+
         // Check for duplicate email in company
         const existing = await User.findOne({ email: email.toLowerCase(), companyId });
         if (existing) {
@@ -89,13 +96,56 @@ export const registerUserInCompany = async (req, res) => {
             name,
             email: email.toLowerCase(),
             password,
-            role,
+            role: "manager",
             companyId,
             isVerified: true
         });
         // Send password to email
         await sendWelcomeEmail(user, password);
-        return res.status(201).json({ success: true, message: "User registered successfully under your company. Password sent to email." });
+        return res.status(201).json({ success: true, message: "Manager registered successfully under your company. Password sent to email." });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 3️⃣ PROTECTED ADMIN REGISTRATION (COMPANY OWNER CREATES ADMIN, PASSWORD EMAILED)
+export const registerAdminInCompany = async (req, res) => {
+    try {
+        const { name, email } = req.body;
+        if (!name || !email) {
+            return res.status(400).json({ success: false, message: "Name and email are required." });
+        }
+
+        const companyId = req.user.companyId;
+        const company = await companyModel.findById(companyId);
+
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Company not found." });
+        }
+
+        // Only Owner can create Admin
+        if (req.user.email !== company.ownerEmail) {
+            return res.status(403).json({ success: false, message: "Only company Owner can create an Admin." });
+        }
+
+        const existing = await User.findOne({ email: email.toLowerCase(), companyId });
+        if (existing) {
+            return res.status(400).json({ success: false, message: "Email already exists in your company." });
+        }
+
+        const password = generateUserPassword(name);
+
+        const user = await User.create({
+            name,
+            email: email.toLowerCase(),
+            password,
+            role: "admin",
+            companyId,
+            isVerified: true
+        });
+
+        await sendWelcomeEmail(user, password);
+        return res.status(201).json({ success: true, message: "Admin registered successfully under your company. Password sent to email." });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }

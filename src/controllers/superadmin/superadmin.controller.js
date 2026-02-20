@@ -1,12 +1,9 @@
 import jwt from "jsonwebtoken";
 import SuperAdmin from "../../models/superadmin/superadmin.model.js";
 import {
-    sendGeneratedPassword,
-    sendOTPEmail,
-    sendResetOTP,
+    sendMail,
 } from "../../utils/mailer.utils.js";
 import { generatePassword } from "../../utils/passwordGenerator.utils.js";
-
 // ===== Helper Functions =====
 // Generate a unique company code (e.g., COMP-XXXX)
 function generateCompanyCode() {
@@ -36,60 +33,178 @@ function generateToken(superadmin, sessionId) {
 }
 
 
-// 1️⃣ REGISTER SUPER ADMIN (OTP BASED)
+/* ======================================================
+   1️⃣ REGISTER SUPER ADMIN (SEND OTP)
+====================================================== */
+
 export const registerSuperAdmin = async (req, res) => {
     try {
         const { name, email } = req.body;
+
         if (!name || !email) {
-            return res.status(400).json({ success: false, message: "Name and email are required" });
+            return res.status(400).json({
+                success: false,
+                message: "Name and email are required"
+            });
         }
-        const existing = await SuperAdmin.findOne({ email: email.toLowerCase() });
+
+        const existing = await SuperAdmin.findOne({
+            email: email.toLowerCase()
+        });
+
         if (existing && existing.isVerified) {
-            return res.status(400).json({ success: false, message: "Email already exists" });
+            return res.status(400).json({
+                success: false,
+                message: "Email already registered"
+            });
         }
+
         const otp = generateOtp();
         const otpExpiry = getOtpExpiry();
-        let superadmin = existing;
-        if (!superadmin) {
-            superadmin = await SuperAdmin.create({ name, email: email.toLowerCase(), otp, otpExpiry });
+
+        let superadmin;
+
+        if (!existing) {
+            superadmin = await SuperAdmin.create({
+                name,
+                email: email.toLowerCase(),
+                otp,
+                otpExpiry
+            });
         } else {
-            superadmin.name = name;
-            superadmin.otp = otp;
-            superadmin.otpExpiry = otpExpiry;
-            await superadmin.save();
+            existing.name = name;
+            existing.otp = otp;
+            existing.otpExpiry = otpExpiry;
+            await existing.save();
+            superadmin = existing;
         }
-        await sendOTPEmail(email, otp);
-        return res.status(201).json({ success: true, message: "OTP sent successfully" });
+
+        // PROFESSIONAL OTP EMAIL
+        await sendMail({
+            to: email,
+            subject: "Verify Your Email – Product Expiry",
+            html: `
+            <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+                <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                    <h2>Welcome to <span style="color:#4CAF50;">Product Expiry</span></h2>
+                    <p>Hi <strong>${name}</strong>,</p>
+                    <p>Please verify your email using the OTP below:</p>
+
+                    <div style="text-align:center;margin:25px 0;">
+                        <span style="font-size:28px;letter-spacing:6px;font-weight:bold;color:#4CAF50;">
+                            ${otp}
+                        </span>
+                    </div>
+
+                    <p>This OTP is valid for 10 minutes.</p>
+                    <hr/>
+                    <p style="font-size:12px;color:#888;">
+                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                    </p>
+                </div>
+            </div>
+            `
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: "OTP sent successfully"
+        });
+
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
-// 2️⃣ VERIFY OTP & COMPLETE REGISTRATION
-export const verifySuperAdminOtp = async (req, res) => {
+/* ======================================================
+   2️⃣ VERIFY OTP & SEND PASSWORD
+====================================================== */
 
+export const verifySuperAdminOtp = async (req, res) => {
     try {
         const { email, otp } = req.body;
-        if (!email || !otp) {
-            return res.status(400).json({ success: false, message: "Email and OTP are required" });
-        }
-        const superadmin = await SuperAdmin.findOne({ email: email.toLowerCase() }).select("+otp +otpExpiry");
+
+        const superadmin = await SuperAdmin.findOne({
+            email: email.toLowerCase()
+        }).select("+otp +otpExpiry");
+
         if (!superadmin) {
-            return res.status(404).json({ success: false, message: "SuperAdmin not found" });
+            return res.status(404).json({
+                success: false,
+                message: "Super Admin not found"
+            });
         }
-        if (!superadmin.isOTPValid(otp)) {
-            return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+
+        if (!superadmin.isOTPValid(String(otp))) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or expired OTP"
+            });
         }
-        const password = generatePassword(superadmin.name);
-        superadmin.password = password;
+
+        // Generate Password
+        const generatedPassword = generatePassword(superadmin.name);
+
+        superadmin.password = generatedPassword;
         superadmin.isVerified = true;
         superadmin.otp = undefined;
         superadmin.otpExpiry = undefined;
+
         await superadmin.save();
-        await sendGeneratedPassword(email, password);
-        return res.status(200).json({ success: true, message: "Registration complete. Password sent to email." });
+
+        // SEND PROFESSIONAL SUCCESS EMAIL WITH PASSWORD
+        await sendMail({
+            to: superadmin.email,
+            subject: "Registration Successful – Product Expiry",
+            html: `
+            <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+                <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                    
+                    <h2 style="color:#4CAF50;">🎉 Registration Successful</h2>
+
+                    <p>Hi <strong>${superadmin.name}</strong>,</p>
+
+                    <p>Your Super Admin account has been successfully verified.</p>
+
+                    <p><strong>Your Login Details:</strong></p>
+
+                    <p>Email: ${superadmin.email}</p>
+                    <p>Password: <strong>${generatedPassword}</strong></p>
+
+                    <div style="margin:20px 0;">
+                        <a href="https://product-expiry-superadmin.vercel.app"
+                           style="background:#4CAF50;color:white;padding:10px 20px;
+                           text-decoration:none;border-radius:5px;">
+                           Login Now
+                        </a>
+                    </div>
+
+                    <p>For security reasons, please change your password after login.</p>
+
+                    <hr/>
+                    <p style="font-size:12px;color:#888;">
+                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                    </p>
+
+                </div>
+            </div>
+            `
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Account verified successfully",
+            token: generateToken(superadmin)
+        });
+
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
@@ -192,52 +307,130 @@ export const googleLoginSuperAdmin = async (req, res) => {
     }
 };
 
-// 5️⃣ FORGOT PASSWORD
+/* ======================================================
+   4️⃣ FORGOT PASSWORD (SEND OTP)
+====================================================== */
+
 export const forgotSuperAdminPassword = async (req, res) => {
     try {
         const { email } = req.body;
-        if (!email) {
-            return res.status(400).json({ success: false, message: "Email is required" });
-        }
-        const superadmin = await SuperAdmin.findOne({ email: email.toLowerCase(), isVerified: true });
+
+        const superadmin = await SuperAdmin.findOne({
+            email: email.toLowerCase(),
+            isVerified: true
+        });
+
         if (!superadmin) {
-            return res.status(404).json({ success: false, message: "SuperAdmin not found" });
+            return res.status(404).json({
+                success: false,
+                message: "SuperAdmin not found"
+            });
         }
+
         const otp = generateOtp();
-        const otpExpiry = getOtpExpiry();
         superadmin.otp = otp;
-        superadmin.otpExpiry = otpExpiry;
+        superadmin.otpExpiry = getOtpExpiry();
         await superadmin.save();
-        await sendResetOTP(email, otp);
-        return res.status(200).json({ success: true, message: "OTP sent to email" });
+
+        await sendMail({
+            to: email,
+            subject: "Password Reset Request – Product Expiry",
+            html: `
+            <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+                <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                    <h2 style="color:#e67e22;">Reset Your Password</h2>
+                    <p>Hi <strong>${superadmin.name}</strong>,</p>
+                    <p>Use the OTP below to reset your password:</p>
+                    <div style="text-align:center;margin:25px 0;">
+                        <span style="font-size:28px;letter-spacing:6px;font-weight:bold;color:#e67e22;">
+                            ${otp}
+                        </span>
+                    </div>
+                    <p>This OTP is valid for 10 minutes.</p>
+                    <hr/>
+                    <p style="font-size:12px;color:#888;">
+                        © ${new Date().getFullYear()} Product Expiry
+                    </p>
+                </div>
+            </div>
+            `
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "OTP sent to email"
+        });
+
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
-// 5️⃣.5️⃣ VERIFY RESET OTP & SET NEW PASSWORD
+/* ======================================================
+   5️⃣ VERIFY RESET OTP & UPDATE PASSWORD
+====================================================== */
+
 export const verifyResetOtp = async (req, res) => {
     try {
         const { email, otp, newPassword } = req.body;
-        if (!email || !otp || !newPassword) {
-            return res.status(400).json({ success: false, message: "Email, OTP, and new password are required" });
+
+        const superadmin = await SuperAdmin.findOne({
+            email: email.toLowerCase(),
+            isVerified: true
+        }).select("+password +otp +otpExpiry");
+
+        if (!superadmin || !superadmin.isOTPValid(String(otp))) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or expired OTP"
+            });
         }
-        const superadmin = await SuperAdmin.findOne({ email: email.toLowerCase(), isVerified: true }).select("+otp +otpExpiry");
-        if (!superadmin) {
-            return res.status(404).json({ success: false, message: "SuperAdmin not found" });
-        }
-        if (!superadmin.isOTPValid(otp)) {
-            return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-        }
+
         superadmin.password = newPassword;
         superadmin.otp = undefined;
         superadmin.otpExpiry = undefined;
+
         await superadmin.save();
-        return res.status(200).json({ success: true, message: "Password reset successfully" });
+
+        await sendMail({
+            to: superadmin.email,
+            subject: "Password Updated Successfully – Product Expiry",
+            html: `
+            <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+                <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                    <h2 style="color:#4CAF50;">✅ Password Updated</h2>
+                    <p>Hi <strong>${superadmin.name}</strong>,</p>
+                    <p>Your password has been successfully updated.</p>
+                    <a href="https://product-expiry-superadmin.vercel.app"
+                       style="background:#4CAF50;color:white;padding:10px 20px;
+                       text-decoration:none;border-radius:5px;">
+                       Login Now
+                    </a>
+                    <hr/>
+                    <p style="font-size:12px;color:#888;">
+                        © ${new Date().getFullYear()} Product Expiry
+                    </p>
+                </div>
+            </div>
+            `
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Password reset successfully"
+        });
+
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
+
 
 // 6️⃣ CHANGE PASSWORD (Protected)
 export const changeSuperAdminPassword = async (req, res) => {

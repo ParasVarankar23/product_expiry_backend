@@ -5,20 +5,20 @@ import User from "../models/users/user.model.js";
 // Protect Company Owner Middleware
 export const protectCompanyOwner = async (req, res, next) => {
     try {
-        // User must be authenticated
-        if (!req.user) {
-            return res.status(401).json({ success: false, message: "Unauthorized" });
+        // Check if user is owner (via owner token with req.company) or admin user matching company owner
+        if (req.isOwner && req.company) {
+            return next();
         }
-        // Find company
-        const company = await companyModel.findById(req.user.companyId);
-        if (!company) {
-            return res.status(404).json({ success: false, message: "Company not found" });
+
+        // Fallback for team member admins (for backward compatibility)
+        if (req.user && req.user.role === "admin") {
+            const company = await companyModel.findById(req.user.companyId);
+            if (company && req.user.email === company.ownerEmail) {
+                return next();
+            }
         }
-        // Check if user is the owner (admin and email matches ownerEmail)
-        if (req.user.role !== "admin" || req.user.email !== company.ownerEmail) {
-            return res.status(403).json({ success: false, message: "Only company owner access allowed" });
-        }
-        next();
+
+        return res.status(403).json({ success: false, message: "Only company owner access allowed" });
     } catch (error) {
         return res.status(401).json({ success: false, message: "Not authorized (company owner)" });
     }
@@ -100,20 +100,33 @@ export const protect = async (req, res, next) => {
         }
 
         const token = authHeader.split(" ")[1];
-
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-        const user = await User.findById(decoded.id).select("-password");
-
-        if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: "User not found",
-            });
+        // Handle owner token
+        if (decoded.type === "owner") {
+            const company = await companyModel.findById(decoded.id);
+            if (!company) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Company not found",
+                });
+            }
+            req.company = company;
+            req.isOwner = true;
+            next();
+        } else {
+            // Handle user token
+            const user = await User.findById(decoded.id).select("-password");
+            if (!user) {
+                return res.status(401).json({
+                    success: false,
+                    message: "User not found",
+                });
+            }
+            req.user = user;
+            req.isOwner = false;
+            next();
         }
-
-        req.user = user;
-        next();
     } catch (error) {
         res.status(401).json({
             success: false,

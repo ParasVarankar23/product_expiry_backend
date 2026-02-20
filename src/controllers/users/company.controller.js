@@ -1,10 +1,10 @@
+import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import companyModel from "../../models/users/company.model.js";
 import User from "../../models/users/user.model.js";
 import { generateCompanyCode } from "../../utils/companyCode.utils.js";
-import { sendGeneratedPassword } from "../../utils/mailer.utils.js";
+import { sendMail } from "../../utils/mailer.utils.js";
 import { generatePassword } from "../../utils/passwordGenerator.utils.js";
-
 const PLAN_PRICES = {
     free: 0,
     basic: 999,
@@ -17,64 +17,156 @@ const PLAN_USER_LIMITS = {
     premium: 10000
 };
 
+const generateAccessToken = (user) =>
+    jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "15m" });
+
+const generateRefreshToken = (user) =>
+    jwt.sign({ id: user._id, role: user.role }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
+
+const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+const getOtpExpiry = () => new Date(Date.now() + 10 * 60 * 1000);
+
 export const createCompany = async (req, res) => {
     try {
         const { ownerName, ownerEmail, companyName, plan } = req.body;
+
         if (!ownerName || !ownerEmail || !companyName || !plan) {
-            return res.status(400).json({ success: false, message: "All fields are required." });
+            return res.status(400).json({
+                success: false,
+                message: "All fields are required."
+            });
         }
-        // Check for duplicate owner email
+
+        // Check duplicate owner email
         const existingOwner = await companyModel.findOne({ ownerEmail });
         if (existingOwner) {
-            return res.status(400).json({ success: false, message: "Owner email already exists." });
+            return res.status(400).json({
+                success: false,
+                message: "Owner email already exists."
+            });
         }
+
         // Generate unique company code
         let companyCode;
         let exists = true;
+
         while (exists) {
             companyCode = generateCompanyCode();
             exists = await companyModel.findOne({ companyCode });
         }
-        // Free plan: activate immediately
+
+        /* ======================================================
+           FREE PLAN (ACTIVE IMMEDIATELY)
+        ====================================================== */
+
         if (plan === "free") {
+            // Generate Owner Password first
+            const password = generatePassword(ownerName);
+
             const company = await companyModel.create({
                 companyName,
                 companyCode,
                 ownerName,
                 ownerEmail,
+                ownerPassword: password,
                 plan,
                 planStatus: "active",
                 planStartDate: new Date(),
-                planEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
-                paymentCreatedAt: null,
+                planEndDate: new Date(
+                    new Date().setFullYear(new Date().getFullYear() + 1)
+                ),
                 userLimit: PLAN_USER_LIMITS[plan],
                 createdBy: req.superadmin?._id || null
             });
-            // Create owner as admin user
-            const password = generatePassword(ownerName);
-            await User.create({
-                name: ownerName,
-                email: ownerEmail.toLowerCase(),
-                password,
-                role: "admin",
-                companyId: company._id,
-                isVerified: true
+
+            /* ======================================================
+               PROFESSIONAL EMAIL TO OWNER
+            ====================================================== */
+
+            await sendMail({
+                to: ownerEmail,
+                subject: `Welcome to Product Expiry – ${companyName} Created Successfully`,
+                html: `
+                <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+                    <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                        
+                        <h2 style="color:#4CAF50;">
+                            🎉 Company Successfully Created
+                        </h2>
+
+                        <p>Hi <strong>${ownerName}</strong>,</p>
+
+                        <p>
+                            Your company <strong>${companyName}</strong> has been successfully created on 
+                            <strong>Product Expiry</strong>.
+                        </p>
+
+                        <h3 style="margin-top:20px;">📌 Company Details</h3>
+
+                        <p><strong>Company Name:</strong> ${companyName}</p>
+                        <p><strong>Company Code:</strong> ${companyCode}</p>
+                        <p><strong>Plan:</strong> ${plan.toUpperCase()}</p>
+                        <p><strong>Status:</strong> Active</p>
+
+                        <h3 style="margin-top:20px;">🔐 Owner Login Details</h3>
+
+                        <p><strong>Email:</strong> ${ownerEmail}</p>
+                        <p><strong>Password:</strong> ${password}</p>
+
+                        <div style="margin:25px 0;">
+                            <a href="https://product-expiry-frontend.vercel.app"
+                               style="background:#4CAF50;color:white;padding:12px 20px;
+                               text-decoration:none;border-radius:5px;">
+                               Login to Dashboard
+                            </a>
+                        </div>
+
+                        <p>
+                            For security reasons, please change your password after first login.
+                        </p>
+
+                        <hr style="margin:25px 0;" />
+
+                        <p style="font-size:13px;color:#555;">
+                            <strong>Created By:</strong> ${req.superadmin?.name || "SuperAdmin"}
+                        </p>
+
+                        <p style="font-size:12px;color:#888;">
+                            © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                        </p>
+
+                    </div>
+                </div>
+                `
             });
-            await sendGeneratedPassword(ownerEmail, password, companyCode);
-            return res.status(201).json({ success: true, paymentRequired: false, companyCode });
+
+            return res.status(201).json({
+                success: true,
+                paymentRequired: false,
+                companyCode
+            });
         }
-        // Paid plan: create company with pending status
+
+        /* ======================================================
+           PAID PLAN (PENDING PAYMENT)
+        ====================================================== */
+
+        // Generate Owner Password for paid plan too
+        const password = generatePassword(ownerName);
+
         const company = await companyModel.create({
             companyName,
             companyCode,
             ownerName,
             ownerEmail,
+            ownerPassword: password,
             plan,
             planStatus: "pending",
             userLimit: PLAN_USER_LIMITS[plan],
             createdBy: req.superadmin?._id || null
         });
-        // Return payment required info
+
         return res.status(201).json({
             success: true,
             paymentRequired: true,
@@ -83,8 +175,12 @@ export const createCompany = async (req, res) => {
             amount: PLAN_PRICES[plan],
             key: process.env.RAZORPAY_KEY_ID
         });
+
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
@@ -152,6 +248,251 @@ export const getDashboardStats = async (req, res) => {
                 }
             }
         });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/* ========================================
+   OWNER AUTH: LOGIN
+======================================== */
+export const loginCompanyOwner = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ success: false, message: "Email and password required" });
+        }
+
+        // Find company by owner email
+        const company = await companyModel.findOne({ ownerEmail: email.toLowerCase() }).select("+ownerPassword");
+        if (!company || !company.ownerPassword) {
+            return res.status(401).json({ success: false, message: "Invalid credentials" });
+        }
+
+        // Compare owner password
+        const match = await company.comparePassword(password);
+        if (!match) {
+            return res.status(401).json({ success: false, message: "Invalid credentials" });
+        }
+
+        const restrictionCheck = await isCompanyRestricted(company._id);
+        if (restrictionCheck.restricted) {
+            return res.status(403).json({
+                success: false,
+                message: restrictionCheck.reason || "Your company access is restricted",
+            });
+        }
+
+        // Generate tokens using company ID
+        const accessToken = jwt.sign({ id: company._id, type: "owner" }, process.env.JWT_SECRET, { expiresIn: "15m" });
+        const refreshToken = jwt.sign({ id: company._id, type: "owner" }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
+
+        return res.status(200).json({
+            success: true,
+            accessToken,
+            refreshToken,
+            owner: {
+                id: company._id,
+                name: company.ownerName,
+                email: company.ownerEmail,
+                role: company.ownerRole,
+            },
+            company: {
+                id: company._id,
+                companyName: company.companyName,
+                companyCode: company.companyCode,
+                plan: company.plan,
+                planStatus: company.planStatus,
+                isActive: company.isActive,
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/* ========================================
+   OWNER AUTH: GET PROFILE (PROTECTED)
+======================================== */
+export const getCompanyOwnerProfile = async (req, res) => {
+    try {
+        // req.company is set by protectCompanyOwner middleware
+        if (!req.company) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        return res.status(200).json({
+            success: true,
+            owner: {
+                id: req.company._id,
+                name: req.company.ownerName,
+                email: req.company.ownerEmail,
+                role: req.company.ownerRole,
+            },
+            company: {
+                companyName: req.company.companyName,
+                companyCode: req.company.companyCode,
+                plan: req.company.plan,
+                planStatus: req.company.planStatus,
+                planEndDate: req.company.planEndDate
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+/* ========================================
+   OWNER AUTH: UPDATE PROFILE (PROTECTED)
+======================================== */
+export const updateCompanyOwnerProfile = async (req, res) => {
+    try {
+        const { name, email } = req.body;
+
+        // ❌ Prevent email change
+        if (email) {
+            return res.status(400).json({
+                success: false,
+                message: "Email cannot be changed"
+            });
+        }
+
+        if (!req.company) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        const updates = {};
+        if (name) updates.ownerName = name;
+
+        const updatedCompany = await companyModel.findByIdAndUpdate(
+            req.company._id,
+            updates,
+            { new: true, runValidators: true }
+        );
+
+        return res.status(200).json({
+            success: true,
+            owner: {
+                id: updatedCompany._id,
+                name: updatedCompany.ownerName,
+                email: updatedCompany.ownerEmail,
+                role: updatedCompany.ownerRole,
+            }
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+/* ========================================
+OWNER AUTH: CHANGE PASSWORD (PROTECTED)
+======================================== */
+export const changeCompanyOwnerPassword = async (req, res) => {
+    try {
+        const { oldPassword, newPassword } = req.body;
+
+        if (!oldPassword || !newPassword) {
+            return res.status(400).json({ success: false, message: "Old and new password required" });
+        }
+
+        if (!req.company) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        const company = await companyModel.findById(req.company._id).select("+ownerPassword");
+        if (!company || !company.ownerPassword) {
+            return res.status(404).json({ success: false, message: "Company owner not found" });
+        }
+
+        const isMatch = await company.comparePassword(oldPassword);
+        if (!isMatch) {
+            return res.status(400).json({ success: false, message: "Old password is incorrect" });
+        }
+
+        company.ownerPassword = newPassword;
+        await company.save();
+
+        return res.status(200).json({ success: true, message: "Password changed successfully" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/* ========================================
+   OWNER AUTH: FORGOT PASSWORD
+======================================== */
+export const forgotCompanyOwnerPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ success: false, message: "Email is required" });
+        }
+
+        const company = await companyModel.findOne({ ownerEmail: email.toLowerCase() });
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Company not found" });
+        }
+
+        const otp = generateOtp();
+        const otpExpiry = getOtpExpiry();
+
+        company.otp = otp;
+        company.otpExpiry = otpExpiry;
+        await company.save();
+
+        await sendMail({
+            to: email,
+            subject: "Password Reset OTP - Product Expiry",
+            html: `<p>Your OTP for password reset is: <strong>${otp}</strong></p><p>It expires in 10 minutes.</p>`
+        });
+
+        return res.status(200).json({ success: true, message: "OTP sent to email" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/* ========================================
+   OWNER AUTH: RESET PASSWORD
+======================================== */
+export const resetCompanyOwnerPassword = async (req, res) => {
+    try {
+        const { email, otp, newPassword } = req.body;
+
+        if (!email || !otp || !newPassword) {
+            return res.status(400).json({ success: false, message: "Email, OTP, and new password are required" });
+        }
+
+        const company = await companyModel.findOne({ ownerEmail: email.toLowerCase() }).select("+otp +otpExpiry");
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Company not found" });
+        }
+
+        if (!company.otp || !company.otpExpiry || company.otpExpiry < new Date()) {
+            return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+        }
+
+        if (String(otp) !== String(company.otp)) {
+            return res.status(400).json({ success: false, message: "Invalid OTP" });
+        }
+
+        company.ownerPassword = newPassword;
+        company.otp = undefined;
+        company.otpExpiry = undefined;
+        await company.save();
+
+        return res.status(200).json({ success: true, message: "Password reset successfully" });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }

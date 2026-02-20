@@ -23,10 +23,10 @@ export const addProduct = async (req, res, next) => {
         }
 
         // Check role authorization
-        if (!["admin", "manager", "store_manager"].includes(req.user.role)) {
+        if (req.user.role !== "admin" && req.user.role !== "manager") {
             return res.status(403).json({
                 success: false,
-                message: "Only admin or manager can add products",
+                message: "Only Admin or Manager can add products",
             });
         }
 
@@ -90,8 +90,8 @@ export const getProducts = async (req, res, next) => {
         // Role-based filtering
         if (req.user.role === "admin") {
             // Admin sees all products
-        } else if (req.user.role === "store_manager") {
-            // Store manager sees only their products
+        } else if (req.user.role === "manager") {
+            // Manager sees only their products
             query.addedBy = req.user._id;
         } else {
             // Regular user sees only assigned products

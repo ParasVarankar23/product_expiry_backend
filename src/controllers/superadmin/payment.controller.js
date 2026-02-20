@@ -1,9 +1,6 @@
 import crypto from "crypto";
 import Payment from "../../models/superadmin/payment.model.js";
 import companyModel from "../../models/users/company.model.js";
-import User from "../../models/users/user.model.js";
-import { sendGeneratedPassword } from "../../utils/mailer.utils.js";
-import { generatePassword } from "../../utils/passwordGenerator.utils.js";
 import razorpay from "../../utils/razorpay.js";
 
 const PLAN_PRICES = {
@@ -86,20 +83,7 @@ export const verifyPayment = async (req, res) => {
         company.publicRegisterEnabled = true;
         await company.save();
 
-        // Create owner as admin user (if not already exists)
-        const existingUser = await User.findOne({ email: company.ownerEmail.toLowerCase() });
-        if (!existingUser) {
-            const password = generatePassword(company.ownerName);
-            await User.create({
-                name: company.ownerName,
-                email: company.ownerEmail.toLowerCase(),
-                password,
-                role: "admin",
-                companyId: company._id,
-                isVerified: true
-            });
-            await sendGeneratedPassword(company.ownerEmail, password, company.companyCode);
-        }
+        // Owner authentication is managed at company level, no user record needed
 
         return res.status(200).json({
             success: true,
