@@ -46,8 +46,16 @@ export const protectSuperAdmin = async (req, res, next) => {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-        // Find superadmin
-        const superadmin = await SuperAdmin.findById(decoded.id);
+        // Ensure only id and sessionId are in the decoded token
+        if (!decoded.id || !decoded.sessionId) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid token structure",
+            });
+        }
+
+        // Find superadmin with sessions
+        const superadmin = await SuperAdmin.findById(decoded.id).select("+sessions");
 
         if (!superadmin) {
             return res.status(401).json({
@@ -56,8 +64,17 @@ export const protectSuperAdmin = async (req, res, next) => {
             });
         }
 
-        // Attach to request
+        // Validate session
+        if (!superadmin.isSessionValid(decoded.sessionId)) {
+            return res.status(401).json({
+                success: false,
+                message: "Session expired or invalid",
+            });
+        }
+
+        // Attach to request (only id and sessionId from token)
         req.superadmin = superadmin;
+        req.sessionId = decoded.sessionId;
 
         // VERY IMPORTANT
         next();

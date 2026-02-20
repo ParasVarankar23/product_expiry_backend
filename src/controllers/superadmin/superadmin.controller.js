@@ -27,9 +27,9 @@ function getOtpExpiry() {
     return new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 }
 
-function generateToken(superadmin) {
+function generateToken(superadmin, sessionId) {
     return jwt.sign(
-        { id: superadmin._id, role: "superadmin" },
+        { id: superadmin._id, sessionId: sessionId },
         process.env.JWT_SECRET,
         { expiresIn: "7d" }
     );
@@ -100,7 +100,7 @@ export const loginSuperAdmin = async (req, res) => {
         if (!email || !password) {
             return res.status(400).json({ success: false, message: "Email and password required" });
         }
-        const superadmin = await SuperAdmin.findOne({ email: email.toLowerCase(), isVerified: true }).select("+password");
+        const superadmin = await SuperAdmin.findOne({ email: email.toLowerCase(), isVerified: true }).select("+password +sessions");
         if (!superadmin || !superadmin.password) {
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
@@ -108,7 +108,16 @@ export const loginSuperAdmin = async (req, res) => {
         if (!match) {
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
-        const token = generateToken(superadmin);
+
+        // Generate session
+        const sessionId = superadmin.generateSessionId();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        const userAgent = req.headers['user-agent'] || null;
+        const ipAddress = req.ip || req.connection.remoteAddress || null;
+
+        await superadmin.addSession(sessionId, expiresAt, userAgent, ipAddress);
+
+        const token = generateToken(superadmin, sessionId);
         return res.status(200).json({
             success: true,
             token,
@@ -120,6 +129,7 @@ export const loginSuperAdmin = async (req, res) => {
                 address: superadmin.address,
                 avatar: superadmin.avatar,
                 provider: superadmin.provider,
+                role: superadmin.role,
                 isVerified: superadmin.isVerified,
             },
         });
@@ -135,7 +145,7 @@ export const googleLoginSuperAdmin = async (req, res) => {
         if (!email || !name || !googleId) {
             return res.status(400).json({ success: false, message: "Missing Google profile data" });
         }
-        let superadmin = await SuperAdmin.findOne({ email: email.toLowerCase() });
+        let superadmin = await SuperAdmin.findOne({ email: email.toLowerCase() }).select("+sessions");
         if (!superadmin) {
             superadmin = await SuperAdmin.create({
                 name,
@@ -152,7 +162,16 @@ export const googleLoginSuperAdmin = async (req, res) => {
             if (picture) superadmin.avatar = picture;
             await superadmin.save();
         }
-        const token = generateToken(superadmin);
+
+        // Generate session
+        const sessionId = superadmin.generateSessionId();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        const userAgent = req.headers['user-agent'] || null;
+        const ipAddress = req.ip || req.connection.remoteAddress || null;
+
+        await superadmin.addSession(sessionId, expiresAt, userAgent, ipAddress);
+
+        const token = generateToken(superadmin, sessionId);
         return res.status(200).json({
             success: true,
             token,
@@ -164,6 +183,7 @@ export const googleLoginSuperAdmin = async (req, res) => {
                 address: superadmin.address,
                 avatar: superadmin.avatar,
                 provider: superadmin.provider,
+                role: superadmin.role,
                 isVerified: superadmin.isVerified,
             },
         });
@@ -234,6 +254,49 @@ export const updateSuperAdminProfile = async (req, res) => {
             { new: true, runValidators: true }
         );
         return res.status(200).json({ success: true, superadmin: updated });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 8️⃣ LOGOUT (Protected)
+export const logoutSuperAdmin = async (req, res) => {
+    try {
+        const superadmin = await SuperAdmin.findById(req.superadmin._id).select("+sessions");
+        if (!superadmin) {
+            return res.status(404).json({ success: false, message: "SuperAdmin not found" });
+        }
+
+        // Remove the current session
+        await superadmin.removeSession(req.sessionId);
+
+        return res.status(200).json({ success: true, message: "Logged out successfully" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 9️⃣ GET PROFILE (Protected)
+export const getSuperAdminProfile = async (req, res) => {
+    try {
+        // req.superadmin is already populated by protectSuperAdmin middleware
+        // It's fetched from database and includes the role field
+        const superadmin = req.superadmin;
+
+        return res.status(200).json({
+            success: true,
+            superadmin: {
+                id: superadmin._id,
+                name: superadmin.name,
+                email: superadmin.email,
+                phoneNumber: superadmin.phoneNumber,
+                address: superadmin.address,
+                avatar: superadmin.avatar,
+                provider: superadmin.provider,
+                role: superadmin.role,
+                isVerified: superadmin.isVerified,
+            },
+        });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
