@@ -2,12 +2,14 @@ import express from "express";
 
 import {
    changePassword,
+   directLoginUser,
    forgotPassword,
    getProfile,
    googleLogin,
    loginUser,
+   ownerCreateAdmin,
+   ownerCreateManager,
    publicRegisterUser,
-   registerAdminInCompany,
    registerUserInCompany,
    resetPassword,
    setPassword,
@@ -28,11 +30,18 @@ const router = express.Router();
 // Public registration (self signup with company code)
 router.post("/public-register", publicRegisterUser);
 
+// Direct user login (email + name + company code - no password needed)
+router.post("/direct-login", directLoginUser);
+
 // Protected manager registration (admin creates manager)
 router.post("/register-company", protect, registerUserInCompany);
 
-// Protected admin registration (company owner only)
-router.post("/register-admin", protect, protectCompanyOwner, registerAdminInCompany);
+
+// Owner creates admin (owner authenticated)
+router.post("/owner-create-admin", protectCompanyOwner, ownerCreateAdmin);
+
+// Owner creates manager (owner authenticated)
+router.post("/owner-create-manager", protectCompanyOwner, ownerCreateManager);
 
 // Verify email OTP
 router.post("/verify-email", verifyEmailOtp);

@@ -1,10 +1,12 @@
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import Payment from "../../models/superadmin/payment.model.js";
 import companyModel from "../../models/users/company.model.js";
 import User from "../../models/users/user.model.js";
 import { generateCompanyCode } from "../../utils/companyCode.utils.js";
 import { sendMail } from "../../utils/mailer.utils.js";
 import { generatePassword } from "../../utils/passwordGenerator.utils.js";
+import razorpay from "../../utils/razorpay.js";
 const PLAN_PRICES = {
     free: 0,
     basic: 999,
@@ -167,19 +169,42 @@ export const createCompany = async (req, res) => {
             createdBy: req.superadmin?._id || null
         });
 
+        // Create Razorpay Order
+        const amount = PLAN_PRICES[plan] * 100; // Convert to paise
+        const shortReceipt = `${company._id.toString().slice(-12)}_${Date.now().toString().slice(-10)}`;
+
+        const razorpayOrder = await razorpay.orders.create({
+            amount,
+            currency: "INR",
+            receipt: shortReceipt,
+        });
+
+        // Save payment record
+        await Payment.create({
+            companyId: company._id,
+            razorpayOrderId: razorpayOrder.id,
+            amount,
+            currency: "INR",
+            plan,
+            status: "created"
+        });
+
         return res.status(201).json({
             success: true,
             paymentRequired: true,
             companyId: company._id,
             companyCode,
+            orderId: razorpayOrder.id,
             amount: PLAN_PRICES[plan],
             key: process.env.RAZORPAY_KEY_ID
         });
 
     } catch (error) {
+        console.error("Create Company Error:", error);
         return res.status(500).json({
             success: false,
-            message: error.message
+            message: error.message || "Failed to create company",
+            error: process.env.NODE_ENV === "development" ? error.toString() : undefined
         });
     }
 };
@@ -436,12 +461,21 @@ export const forgotCompanyOwnerPassword = async (req, res) => {
         const { email } = req.body;
 
         if (!email) {
-            return res.status(400).json({ success: false, message: "Email is required" });
+            return res.status(400).json({
+                success: false,
+                message: "Email is required"
+            });
         }
 
-        const company = await companyModel.findOne({ ownerEmail: email.toLowerCase() });
+        const company = await companyModel.findOne({
+            ownerEmail: email.toLowerCase()
+        });
+
         if (!company) {
-            return res.status(404).json({ success: false, message: "Company not found" });
+            return res.status(404).json({
+                success: false,
+                message: "Company not found"
+            });
         }
 
         const otp = generateOtp();
@@ -453,13 +487,58 @@ export const forgotCompanyOwnerPassword = async (req, res) => {
 
         await sendMail({
             to: email,
-            subject: "Password Reset OTP - Product Expiry",
-            html: `<p>Your OTP for password reset is: <strong>${otp}</strong></p><p>It expires in 10 minutes.</p>`
+            subject: "Password Reset Request – Product Expiry",
+            html: `
+            <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+                <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                    
+                    <h2 style="color:#e67e22;">
+                        Reset Your Owner Password
+                    </h2>
+
+                    <p>Hi <strong>${company.ownerName}</strong>,</p>
+
+                    <p>
+                        We received a request to reset your Company Owner password
+                        for <strong>${company.companyName}</strong>.
+                    </p>
+
+                    <div style="text-align:center;margin:25px 0;">
+                        <span style="font-size:28px;letter-spacing:6px;
+                        font-weight:bold;color:#e67e22;">
+                            ${otp}
+                        </span>
+                    </div>
+
+                    <p>
+                        This OTP will expire in <strong>10 minutes</strong>.
+                    </p>
+
+                    <p>
+                        If you did not request this reset, please ignore this email.
+                    </p>
+
+                    <hr style="margin:25px 0;" />
+
+                    <p style="font-size:12px;color:#888;">
+                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                    </p>
+
+                </div>
+            </div>
+            `
         });
 
-        return res.status(200).json({ success: true, message: "OTP sent to email" });
+        return res.status(200).json({
+            success: true,
+            message: "OTP sent to email"
+        });
+
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
@@ -471,30 +550,106 @@ export const resetCompanyOwnerPassword = async (req, res) => {
         const { email, otp, newPassword } = req.body;
 
         if (!email || !otp || !newPassword) {
-            return res.status(400).json({ success: false, message: "Email, OTP, and new password are required" });
+            return res.status(400).json({
+                success: false,
+                message: "Email, OTP, and new password are required"
+            });
         }
 
-        const company = await companyModel.findOne({ ownerEmail: email.toLowerCase() }).select("+otp +otpExpiry");
+        const company = await companyModel.findOne({
+            ownerEmail: email.toLowerCase()
+        }).select("+otp +otpExpiry +ownerPassword");
+
         if (!company) {
-            return res.status(404).json({ success: false, message: "Company not found" });
+            return res.status(404).json({
+                success: false,
+                message: "Company not found"
+            });
         }
 
-        if (!company.otp || !company.otpExpiry || company.otpExpiry < new Date()) {
-            return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+        if (
+            !company.otp ||
+            !company.otpExpiry ||
+            company.otpExpiry < new Date()
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or expired OTP"
+            });
         }
 
         if (String(otp) !== String(company.otp)) {
-            return res.status(400).json({ success: false, message: "Invalid OTP" });
+            return res.status(400).json({
+                success: false,
+                message: "Invalid OTP"
+            });
         }
 
+        // 🔐 Set new password (pre-save hook will handle hashing)
         company.ownerPassword = newPassword;
+
         company.otp = undefined;
         company.otpExpiry = undefined;
+
         await company.save();
 
-        return res.status(200).json({ success: true, message: "Password reset successfully" });
+        /* ===============================
+           PROFESSIONAL SUCCESS EMAIL
+        =============================== */
+
+        await sendMail({
+            to: company.ownerEmail,
+            subject: "Password Updated Successfully – Product Expiry",
+            html: `
+            <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+                <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                    
+                    <h2 style="color:#4CAF50;">
+                        ✅ Password Updated Successfully
+                    </h2>
+
+                    <p>Hi <strong>${company.ownerName}</strong>,</p>
+
+                    <p>
+                        Your password for <strong>${company.companyName}</strong>
+                        has been successfully updated.
+                    </p>
+
+                    <div style="margin:20px 0;">
+                        <a href="https://product-expiry-frontend.vercel.app"
+                           style="background:#4CAF50;color:white;padding:12px 20px;
+                           text-decoration:none;border-radius:5px;">
+                           Login to Dashboard
+                        </a>
+                    </div>
+
+                    <p>
+                        If you did not perform this action,
+                        please contact support immediately.
+                    </p>
+
+                    <hr style="margin:25px 0;" />
+
+                    <p style="font-size:12px;color:#888;">
+                        © ${new Date().getFullYear()} Product Expiry.
+                        All rights reserved.
+                    </p>
+
+                </div>
+            </div>
+            `
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Password reset successfully"
+        });
+
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 

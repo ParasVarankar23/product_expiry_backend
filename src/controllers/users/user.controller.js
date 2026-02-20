@@ -108,33 +108,32 @@ export const registerUserInCompany = async (req, res) => {
     }
 };
 
-// 3️⃣ PROTECTED ADMIN REGISTRATION (COMPANY OWNER CREATES ADMIN, PASSWORD EMAILED)
-export const registerAdminInCompany = async (req, res) => {
+
+// 4️⃣ OWNER CREATES ADMIN (OWNER AUTHENTICATED)
+export const ownerCreateAdmin = async (req, res) => {
     try {
         const { name, email } = req.body;
         if (!name || !email) {
             return res.status(400).json({ success: false, message: "Name and email are required." });
         }
 
-        const companyId = req.user.companyId;
-        const company = await companyModel.findById(companyId);
-
-        if (!company) {
-            return res.status(404).json({ success: false, message: "Company not found." });
+        // req.company is set by owner authentication middleware
+        if (!req.company) {
+            return res.status(401).json({ success: false, message: "Unauthorized - Owner authentication required" });
         }
 
-        // Only Owner can create Admin
-        if (req.user.email !== company.ownerEmail) {
-            return res.status(403).json({ success: false, message: "Only company Owner can create an Admin." });
-        }
+        const companyId = req.company._id;
 
+        // Check for duplicate email in company
         const existing = await User.findOne({ email: email.toLowerCase(), companyId });
         if (existing) {
             return res.status(400).json({ success: false, message: "Email already exists in your company." });
         }
 
+        // Generate password
         const password = generateUserPassword(name);
 
+        // Create admin user
         const user = await User.create({
             name,
             email: email.toLowerCase(),
@@ -144,12 +143,145 @@ export const registerAdminInCompany = async (req, res) => {
             isVerified: true
         });
 
+        // Send welcome email with password
         await sendWelcomeEmail(user, password);
-        return res.status(201).json({ success: true, message: "Admin registered successfully under your company. Password sent to email." });
+
+        return res.status(201).json({
+            success: true,
+            message: "Admin created successfully. Password sent to email.",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
 };
+
+// 5️⃣ OWNER CREATES MANAGER (OWNER AUTHENTICATED)
+export const ownerCreateManager = async (req, res) => {
+    try {
+        const { name, email } = req.body;
+        if (!name || !email) {
+            return res.status(400).json({ success: false, message: "Name and email are required." });
+        }
+
+        // req.company is set by owner authentication middleware
+        if (!req.company) {
+            return res.status(401).json({ success: false, message: "Unauthorized - Owner authentication required" });
+        }
+
+        const companyId = req.company._id;
+
+        // Check for duplicate email in company
+        const existing = await User.findOne({ email: email.toLowerCase(), companyId });
+        if (existing) {
+            return res.status(400).json({ success: false, message: "Email already exists in your company." });
+        }
+
+        // Generate password
+        const password = generateUserPassword(name);
+
+        // Create manager user
+        const user = await User.create({
+            name,
+            email: email.toLowerCase(),
+            password,
+            role: "manager",
+            companyId,
+            isVerified: true
+        });
+
+        // Send welcome email with password
+        await sendWelcomeEmail(user, password);
+
+        return res.status(201).json({
+            success: true,
+            message: "Manager created successfully. Password sent to email.",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 6️⃣ DIRECT USER LOGIN (EMAIL + NAME + COMPANY CODE - NO PASSWORD NEEDED)
+export const directLoginUser = async (req, res) => {
+    try {
+        const { email, name, companyCode } = req.body;
+
+        if (!email || !name || !companyCode) {
+            return res.status(400).json({
+                success: false,
+                message: "Email, name, and company code are required."
+            });
+        }
+
+        // Find company by code
+        const company = await companyModel.findOne({
+            companyCode: companyCode.toUpperCase(),
+            isActive: true
+        });
+
+        if (!company) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid company code."
+            });
+        }
+
+        // Check company plan status
+        if (company.planStatus !== "active") {
+            return res.status(403).json({
+                success: false,
+                message: "Company subscription is not active."
+            });
+        }
+
+        // Find user by email and name in this company
+        const user = await User.findOne({
+            email: email.toLowerCase(),
+            name,
+            companyId: company._id
+        });
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: "User not found. Please check email, name, and company code."
+            });
+        }
+
+        // Generate tokens
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+
+        return res.status(200).json({
+            success: true,
+            message: "Login successful",
+            accessToken,
+            refreshToken,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                companyId: user.companyId
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 /* ======================================================
    TOKEN HELPERS
 ====================================================== */

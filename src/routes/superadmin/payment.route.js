@@ -4,12 +4,13 @@ import { protectSuperAdmin } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-
-
-// Create Razorpay order for company
+// Protected routes (require superadmin auth)
 router.post("/create-order", protectSuperAdmin, createPaymentOrder);
 
-// Verify payment for company
+// Public route (for customers to verify payment after Razorpay)
+router.post("/verify-payment", verifyPayment);
+
+// Kept for backward compatibility
 router.post("/verify", protectSuperAdmin, verifyPayment);
 
 export default router;
