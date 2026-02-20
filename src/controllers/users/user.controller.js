@@ -1,5 +1,4 @@
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import companyModel from "../../models/users/company.model.js";
 import User from "../../models/users/user.model.js";

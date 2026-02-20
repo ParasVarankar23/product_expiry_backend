@@ -35,7 +35,6 @@ function generateToken(superadmin) {
     );
 }
 
-// ...existing code...
 
 // 1️⃣ REGISTER SUPER ADMIN (OTP BASED)
 export const registerSuperAdmin = async (req, res) => {
