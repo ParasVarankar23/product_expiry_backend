@@ -310,6 +310,15 @@ export const loginUser = async (req, res, next) => {
             });
         }
 
+        // Check if company is suspended or inactive
+        const restrictionCheck = await isCompanyRestricted(user.companyId);
+        if (restrictionCheck.restricted) {
+            return res.status(403).json({
+                success: false,
+                message: restrictionCheck.reason || "Your company access is restricted"
+            });
+        }
+
         res.status(200).json({
             success: true,
             accessToken: generateAccessToken(user),
@@ -490,6 +499,17 @@ export const googleLogin = async (req, res, next) => {
         } else if (!user.emailVerified) {
             user.emailVerified = true;
             await user.save();
+        }
+
+        // Check if user has a company and if it's restricted
+        if (user.companyId) {
+            const restrictionCheck = await isCompanyRestricted(user.companyId);
+            if (restrictionCheck.restricted) {
+                return res.status(403).json({
+                    success: false,
+                    message: restrictionCheck.reason || "Your company access is restricted"
+                });
+            }
         }
 
         res.status(200).json({

@@ -13,6 +13,7 @@ const companySchema = new mongoose.Schema({
     planStartDate: { type: Date, default: null }, // Subscription start
     planEndDate: { type: Date, default: null },   // Subscription end
     paymentCreatedAt: { type: Date, default: null }, // Payment timestamp
+    userLimit: { type: Number, default: 50 }, // User limit based on plan
     isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 

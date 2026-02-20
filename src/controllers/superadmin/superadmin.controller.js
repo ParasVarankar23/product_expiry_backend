@@ -215,6 +215,30 @@ export const forgotSuperAdminPassword = async (req, res) => {
     }
 };
 
+// 5️⃣.5️⃣ VERIFY RESET OTP & SET NEW PASSWORD
+export const verifyResetOtp = async (req, res) => {
+    try {
+        const { email, otp, newPassword } = req.body;
+        if (!email || !otp || !newPassword) {
+            return res.status(400).json({ success: false, message: "Email, OTP, and new password are required" });
+        }
+        const superadmin = await SuperAdmin.findOne({ email: email.toLowerCase(), isVerified: true }).select("+otp +otpExpiry");
+        if (!superadmin) {
+            return res.status(404).json({ success: false, message: "SuperAdmin not found" });
+        }
+        if (!superadmin.isOTPValid(otp)) {
+            return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+        }
+        superadmin.password = newPassword;
+        superadmin.otp = undefined;
+        superadmin.otpExpiry = undefined;
+        await superadmin.save();
+        return res.status(200).json({ success: true, message: "Password reset successfully" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 // 6️⃣ CHANGE PASSWORD (Protected)
 export const changeSuperAdminPassword = async (req, res) => {
     try {
