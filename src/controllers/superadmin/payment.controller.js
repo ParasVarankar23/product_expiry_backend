@@ -1,7 +1,10 @@
 import crypto from "crypto";
-import Payment from "../models/superadmin/payment.model.js";
-import companyModel from "../models/users/company.model.js";
-import razorpay from "../utils/razorpay.js";
+import Payment from "../../models/superadmin/payment.model.js";
+import companyModel from "../../models/users/company.model.js";
+import User from "../../models/users/user.model.js";
+import { sendGeneratedPassword } from "../../utils/mailer.utils.js";
+import { generatePassword } from "../../utils/passwordGenerator.utils.js";
+import razorpay from "../../utils/razorpay.js";
 
 const PLAN_PRICES = {
     free: 0,
@@ -16,11 +19,16 @@ export const createPaymentOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: "companyId and plan required" });
         }
         const amount = PLAN_PRICES[plan] * 100; // Razorpay expects paise
+
+        // Create a shorter receipt (max 40 chars)
+        const shortReceipt = `${companyId.slice(-12)}_${Date.now().toString().slice(-10)}`;
+
         const order = await razorpay.orders.create({
             amount,
             currency: "INR",
-            receipt: `rcpt_${companyId}_${Date.now()}`,
+            receipt: shortReceipt,
         });
+
         const payment = await Payment.create({
             companyId,
             razorpayOrderId: order.id,
@@ -67,15 +75,37 @@ export const verifyPayment = async (req, res) => {
         await payment.save();
         // Activate company plan
         const company = await companyModel.findById(payment.companyId);
-        if (company) {
-            company.planStatus = "active";
-            company.planStartDate = new Date();
-            company.planEndDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1));
-            company.paymentCreatedAt = new Date();
-            company.publicRegisterEnabled = true;
-            await company.save();
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Company not found" });
         }
-        return res.status(200).json({ success: true, message: "Payment successful, plan activated." });
+
+        company.planStatus = "active";
+        company.planStartDate = new Date();
+        company.planEndDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1));
+        company.paymentCreatedAt = new Date();
+        company.publicRegisterEnabled = true;
+        await company.save();
+
+        // Create owner as admin user (if not already exists)
+        const existingUser = await User.findOne({ email: company.ownerEmail.toLowerCase() });
+        if (!existingUser) {
+            const password = generatePassword(company.ownerName);
+            await User.create({
+                name: company.ownerName,
+                email: company.ownerEmail.toLowerCase(),
+                password,
+                role: "admin",
+                companyId: company._id,
+                isVerified: true
+            });
+            await sendGeneratedPassword(company.ownerEmail, password, company.companyCode);
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Payment successful, plan activated.",
+            companyCode: company.companyCode
+        });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }

@@ -6,6 +6,7 @@ import connectDB from "./src/init/db.js";
 import { startExpiryJob } from "./src/jobs/expiry.job.js";
 
 
+import paymentRoute from "./src/routes/superadmin/payment.route.js";
 import superadminRoute from "./src/routes/superadmin/superadmin.route.js";
 import dashboardRoute from "./src/routes/users/dashboard.route.js";
 import productRoute from "./src/routes/users/product.route.js";
@@ -51,6 +52,7 @@ app.use("/api/user", userRoute);
 app.use("/api/product", productRoute);
 app.use("/api/dashboard", dashboardRoute);
 app.use("/api/superadmin", superadminRoute);
+app.use("/api/payment", paymentRoute);
 
 /* ================== HEALTH CHECK ================== */
 app.get("/", (req, res) => {
