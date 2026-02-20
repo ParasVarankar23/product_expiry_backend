@@ -9,7 +9,7 @@ const companySchema = new mongoose.Schema({
     ownerPosition: { type: String, default: "Owner" },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "SuperAdmin", required: true },
     plan: { type: String, enum: ["free", "basic", "premium"], default: "free" },
-    planStatus: { type: String, enum: ["active", "pending", "expired"], default: "pending" },
+    planStatus: { type: String, enum: ["active", "pending", "suspended", "inactive"], default: "pending" },
     planStartDate: { type: Date, default: null }, // Subscription start
     planEndDate: { type: Date, default: null },   // Subscription end
     paymentCreatedAt: { type: Date, default: null }, // Payment timestamp

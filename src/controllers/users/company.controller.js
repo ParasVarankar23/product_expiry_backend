@@ -361,7 +361,7 @@ export const suspendCompany = async (req, res) => {
                 isActive: false,
                 ...(reason && { suspensionReason: reason })
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         return res.status(200).json({
@@ -400,7 +400,7 @@ export const activateCompany = async (req, res) => {
                 planStatus: "active",
                 isActive: true
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         return res.status(200).json({
@@ -437,7 +437,7 @@ export const deactivateCompany = async (req, res) => {
                 planStatus: "inactive",
                 ...(reason && { deactivationReason: reason })
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         return res.status(200).json({
@@ -489,6 +489,112 @@ export const getCompanyDetails = async (req, res) => {
                     byRole: roleStats,
                     userLimitUsed: `${totalUsers}/${company.userLimit}`
                 }
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/* ========================================
+   🔟 UPDATE COMPANY DETAILS (NAME, OWNER INFO)
+======================================== */
+export const updateCompanyDetails = async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        const { companyName, ownerName, ownerEmail } = req.body;
+
+        if (!companyId) {
+            return res.status(400).json({ success: false, message: "Company ID is required" });
+        }
+
+        const company = await companyModel.findById(companyId);
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Company not found" });
+        }
+
+        // Prepare update object
+        const updates = {};
+
+        if (companyName !== undefined && companyName.trim()) {
+            updates.companyName = companyName.trim();
+        }
+
+        if (ownerName !== undefined && ownerName.trim()) {
+            updates.ownerName = ownerName.trim();
+        }
+
+        if (ownerEmail !== undefined && ownerEmail.trim()) {
+            const email = ownerEmail.trim().toLowerCase();
+
+            // Check if email is being changed and if it already exists
+            if (email !== company.ownerEmail) {
+                const existingOwner = await companyModel.findOne({
+                    ownerEmail: email,
+                    _id: { $ne: companyId }
+                });
+
+                if (existingOwner) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "This owner email is already associated with another company"
+                    });
+                }
+            }
+
+            updates.ownerEmail = email;
+        }
+
+        // Update the company
+        const updatedCompany = await companyModel.findByIdAndUpdate(
+            companyId,
+            updates,
+            { returnDocument: 'after', runValidators: true }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Company details updated successfully",
+            data: updatedCompany
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/* ========================================
+   1️⃣1️⃣ DELETE COMPANY CONTROLLER
+======================================== */
+export const deleteCompany = async (req, res) => {
+    try {
+        const { companyId } = req.params;
+
+        if (!companyId) {
+            return res.status(400).json({ success: false, message: "Company ID is required" });
+        }
+
+        const company = await companyModel.findById(companyId);
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Company not found" });
+        }
+
+        // Delete all users associated with this company
+        const deletedUsers = await User.deleteMany({ companyId });
+
+        // Delete all products associated with this company
+        const Product = mongoose.model("Product");
+        const deletedProducts = await Product.deleteMany({ companyId });
+
+        // Delete the company
+        await companyModel.findByIdAndDelete(companyId);
+
+        return res.status(200).json({
+            success: true,
+            message: "Company and all associated data deleted successfully",
+            data: {
+                companyName: company.companyName,
+                deletedUsers: deletedUsers.deletedCount,
+                deletedProducts: deletedProducts.deletedCount
             }
         });
     } catch (error) {

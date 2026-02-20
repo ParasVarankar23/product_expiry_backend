@@ -12,14 +12,16 @@ import {
     verifySuperAdminOtp,
 } from "../../controllers/superadmin/superadmin.controller.js";
 import {
-    createCompany, 
-    getDashboardStats,
+    activateCompany,
+    createCompany,
+    deactivateCompany,
+    deleteCompany,
     getAllCompanies,
     getCompanyDetails,
-    updateCompanyPlan,
+    getDashboardStats,
     suspendCompany,
-    activateCompany,
-    deactivateCompany,
+    updateCompanyDetails,
+    updateCompanyPlan,
 } from "../../controllers/users/company.controller.js";
 import { protectSuperAdmin } from "../../middleware/auth.middleware.js";
 
@@ -35,9 +37,11 @@ router.get("/dashboard-stats", protectSuperAdmin, getDashboardStats);
 router.get("/companies", protectSuperAdmin, getAllCompanies);
 router.get("/company/:companyId", protectSuperAdmin, getCompanyDetails);
 router.put("/company/:companyId/plan", protectSuperAdmin, updateCompanyPlan);
+router.put("/company/:companyId/details", protectSuperAdmin, updateCompanyDetails);
 router.post("/company/:companyId/suspend", protectSuperAdmin, suspendCompany);
 router.post("/company/:companyId/activate", protectSuperAdmin, activateCompany);
 router.post("/company/:companyId/deactivate", protectSuperAdmin, deactivateCompany);
+router.delete("/company/:companyId", protectSuperAdmin, deleteCompany);
 
 /* ===== Login ===== */
 router.post("/login", loginSuperAdmin);

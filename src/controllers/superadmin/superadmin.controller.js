@@ -275,7 +275,7 @@ export const updateSuperAdminProfile = async (req, res) => {
         const updated = await SuperAdmin.findByIdAndUpdate(
             req.superadmin._id,
             updates,
-            { new: true, runValidators: true }
+            { returnDocument: 'after', runValidators: true }
         );
         return res.status(200).json({ success: true, superadmin: updated });
     } catch (error) {
