@@ -87,7 +87,7 @@ export const verifyPayment = async (req, res) => {
         // Send confirmation email to owner
         await sendMail({
             to: company.ownerEmail,
-            subject: `Payment Successful – Welcome to Product Expiry ${company.companyName}`,
+            subject: `Payment Successful – Your Product Expiry Account is Now Active`,
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -100,7 +100,7 @@ export const verifyPayment = async (req, res) => {
 
                     <p>
                         Your payment has been processed successfully! Your company 
-                        <strong>${company.companyName}</strong> is now active and ready to use.
+                        <strong>${company.companyName}</strong> is now fully active and ready to use.
                     </p>
 
                     <h3 style="margin-top:20px;">📌 Company Details</h3>
@@ -115,7 +115,11 @@ export const verifyPayment = async (req, res) => {
                     <h3 style="margin-top:20px;">🔐 Owner Login Details</h3>
 
                     <p><strong>Email:</strong> ${company.ownerEmail}</p>
-                    <p style="color:#d32f2f;"><strong>Password:</strong> Check your welcome email (sent earlier)</p>
+                    <p style="color:#4CAF50;"><strong>✅ Password:</strong> Check your welcome email for login credentials</p>
+
+                    <div style="margin:25px 0;padding:15px;background:#e8f5e9;border-left:4px solid #4CAF50;border-radius:4px;">
+                        <p style="margin:0;"><strong>✅ Account Activated:</strong> Your company is now fully active and ready to use!</p>
+                    </div>
 
                     <div style="margin:25px 0;">
                         <a href="https://product-expiry-frontend.vercel.app"

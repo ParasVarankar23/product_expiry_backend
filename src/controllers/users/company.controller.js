@@ -169,6 +169,72 @@ export const createCompany = async (req, res) => {
             createdBy: req.superadmin?._id || null
         });
 
+        /* ======================================================
+           SEND WELCOME EMAIL WITH PASSWORD (PAID PLAN)
+        ====================================================== */
+
+        await sendMail({
+            to: ownerEmail,
+            subject: `Welcome to Product Expiry – ${companyName} Created Successfully`,
+            html: `
+            <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+                <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                    
+                    <h2 style="color:#4CAF50;">
+                        🎉 Company Successfully Created
+                    </h2>
+
+                    <p>Hi <strong>${ownerName}</strong>,</p>
+
+                    <p>
+                        Your company <strong>${companyName}</strong> has been successfully created on 
+                        <strong>Product Expiry</strong>.
+                    </p>
+
+                    <h3 style="margin-top:20px;">📌 Company Details</h3>
+
+                    <p><strong>Company Name:</strong> ${companyName}</p>
+                    <p><strong>Company Code:</strong> ${companyCode}</p>
+                    <p><strong>Plan:</strong> ${plan.toUpperCase()}</p>
+                    <p><strong>Status:</strong> Pending Payment</p>
+                    <p><strong>User Limit:</strong> ${PLAN_USER_LIMITS[plan]} users</p>
+
+                    <h3 style="margin-top:20px;">🔐 Owner Login Details</h3>
+
+                    <p><strong>Email:</strong> ${ownerEmail}</p>
+                    <p><strong>Password:</strong> <span style="font-weight:bold;color:#d32f2f;">${password}</span></p>
+
+                    <div style="margin:25px 0;padding:15px;background:#fff3cd;border-left:4px solid #ffc107;border-radius:4px;">
+                        <p style="margin:0;"><strong>⚠️ Important:</strong> Complete your payment to activate your account. You can login and explore the platform while payment is pending.</p>
+                    </div>
+
+                    <div style="margin:25px 0;">
+                        <a href="https://product-expiry-frontend.vercel.app"
+                           style="background:#4CAF50;color:white;padding:12px 20px;
+                           text-decoration:none;border-radius:5px;display:inline-block;margin-right:10px;">
+                           Login to Dashboard
+                        </a>
+                    </div>
+
+                    <p>
+                        For security reasons, please change your password after first login.
+                    </p>
+
+                    <hr style="margin:25px 0;" />
+
+                    <p style="font-size:13px;color:#555;">
+                        <strong>Created By:</strong> ${req.superadmin?.name || "SuperAdmin"}
+                    </p>
+
+                    <p style="font-size:12px;color:#888;">
+                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                    </p>
+
+                </div>
+            </div>
+            `
+        });
+
         // Create Razorpay Order
         const amount = PLAN_PRICES[plan] * 100; // Convert to paise
         const shortReceipt = `${company._id.toString().slice(-12)}_${Date.now().toString().slice(-10)}`;

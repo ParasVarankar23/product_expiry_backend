@@ -371,3 +371,157 @@ export const getUserDashboard = async (req, res, next) => {
         next(error);
     }
 };
+
+/* ======================================================
+   COMPANY OWNER DASHBOARD
+====================================================== */
+
+export const getCompanyOwnerDashboard = async (req, res, next) => {
+    try {
+        if (!req.isOwner || !req.company) {
+            return res.status(403).json({
+                success: false,
+                message: "Company owner access only",
+            });
+        }
+
+        const companyId = req.company._id;
+        const now = new Date();
+        const sevenDaysFromNow = new Date(
+            now.getTime() + 7 * 24 * 60 * 60 * 1000
+        );
+
+        // Total products (company scoped)
+        const totalProducts = await Product.countDocuments({
+            companyId,
+        });
+
+        // Expired products
+        const expiredProducts = await Product.countDocuments({
+            companyId,
+            status: "expired",
+        });
+
+        // Active products
+        const activeProducts = await Product.countDocuments({
+            companyId,
+            status: "active",
+        });
+
+        // Products expiring soon (within 7 days)
+        const expiringSoon = await Product.countDocuments({
+            companyId,
+            expiryDate: { $lte: sevenDaysFromNow, $gt: now },
+            status: "active",
+        });
+
+        // Category breakdown
+        const categoryStats = await Product.aggregate([
+            { $match: { companyId } },
+            {
+                $group: {
+                    _id: "$category",
+                    count: { $sum: 1 },
+                },
+            },
+            { $sort: { count: -1 } },
+            { $limit: 10 },
+        ]);
+
+        // Recent products
+        const recentProducts = await Product.find({ companyId })
+            .populate("addedBy", "name email role")
+            .sort({ createdAt: -1 })
+            .limit(5);
+
+        // Products with AI advice
+        const productsWithAI = await Product.countDocuments({
+            companyId,
+            aiAdvice: { $ne: "" },
+        });
+
+        // Total staff (users in company)
+        const totalStaff = await User.countDocuments({
+            companyId,
+        });
+
+        // Staff by role
+        const staffByRole = await User.aggregate([
+            { $match: { companyId } },
+            {
+                $group: {
+                    _id: "$role",
+                    count: { $sum: 1 },
+                },
+            },
+        ]);
+
+        // Total orders
+        const totalOrders = await Order.countDocuments({
+            companyId,
+        });
+
+        // Products sold (sum of quantities from completed orders)
+        const soldStats = await Order.aggregate([
+            {
+                $match: {
+                    companyId,
+                    paymentStatus: "completed",
+                },
+            },
+            { $unwind: "$items" },
+            {
+                $group: {
+                    _id: null,
+                    totalSold: { $sum: "$items.quantity" },
+                    totalRevenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
+                },
+            },
+        ]);
+
+        const productsSold = soldStats.length > 0 ? soldStats[0].totalSold : 0;
+        const totalRevenue = soldStats.length > 0 ? soldStats[0].totalRevenue : 0;
+
+        // Total stock remaining
+        const stockStats = await Product.aggregate([
+            { $match: { companyId } },
+            {
+                $group: {
+                    _id: null,
+                    totalStock: { $sum: "$stock" },
+                },
+            },
+        ]);
+
+        const remainingStock = stockStats.length > 0 ? stockStats[0].totalStock : 0;
+
+        // Recent orders
+        const recentOrders = await Order.find({ companyId })
+            .populate("userId", "name email")
+            .sort({ createdAt: -1 })
+            .limit(5);
+
+        res.status(200).json({
+            success: true,
+            dashboard: {
+                totalProducts,
+                expiredProducts,
+                activeProducts,
+                expiringSoon,
+                productsWithAI,
+                totalStaff,
+                staffByRole,
+                totalOrders,
+                productsSold,
+                totalRevenue,
+                remainingStock,
+                categoryStats,
+                recentProducts,
+                recentOrders,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+

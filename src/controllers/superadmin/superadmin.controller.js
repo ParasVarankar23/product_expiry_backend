@@ -377,21 +377,41 @@ export const verifyResetOtp = async (req, res) => {
     try {
         const { email, otp, newPassword } = req.body;
 
+        if (!email || !otp || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: "Email, OTP, and new password are required"
+            });
+        }
+
         const superadmin = await SuperAdmin.findOne({
             email: email.toLowerCase(),
             isVerified: true
-        }).select("+password +otp +otpExpiry");
+        }).select("+password +otp +otpExpiry +sessions");
 
-        if (!superadmin || !superadmin.isOTPValid(String(otp))) {
+        if (!superadmin) {
+            return res.status(404).json({
+                success: false,
+                message: "SuperAdmin not found"
+            });
+        }
+
+        if (!superadmin.isOTPValid(String(otp))) {
             return res.status(400).json({
                 success: false,
                 message: "Invalid or expired OTP"
             });
         }
 
+        // Update password (will be hashed by pre-save hook)
         superadmin.password = newPassword;
+
+        // Clear OTP fields
         superadmin.otp = undefined;
         superadmin.otpExpiry = undefined;
+
+        // Clear all sessions for security (force re-login)
+        superadmin.sessions = [];
 
         await superadmin.save();
 
@@ -404,9 +424,10 @@ export const verifyResetOtp = async (req, res) => {
                     <h2 style="color:#4CAF50;">✅ Password Updated</h2>
                     <p>Hi <strong>${superadmin.name}</strong>,</p>
                     <p>Your password has been successfully updated.</p>
+                    <p>For security reasons, you have been logged out of all devices. Please login again with your new password.</p>
                     <a href="https://product-expiry-superadmin.vercel.app"
                        style="background:#4CAF50;color:white;padding:10px 20px;
-                       text-decoration:none;border-radius:5px;">
+                       text-decoration:none;border-radius:5px;display:inline-block;margin:15px 0;">
                        Login Now
                     </a>
                     <hr/>
@@ -420,7 +441,7 @@ export const verifyResetOtp = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: "Password reset successfully"
+            message: "Password reset successfully. Please login with your new password."
         });
 
     } catch (error) {
