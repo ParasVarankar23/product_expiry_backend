@@ -53,21 +53,43 @@ Keep it concise and actionable.
    GENERATE EXPIRY WARNING
 ====================================================== */
 
-export const generateExpiryWarning = async (productName, expiryDate) => {
+export const generateExpiryWarning = async (productName, expiryDate, daysRemaining = null) => {
     try {
         if (!process.env.GEMINI_API_KEY) {
+            if (daysRemaining !== null && daysRemaining <= 0) {
+                return `⛔ ${productName} has EXPIRED. Do not consume. Dispose immediately.`;
+            }
             return `⚠️ ${productName} is expiring soon. Please consume or dispose safely.`;
         }
 
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
+        const days = daysRemaining !== null ? daysRemaining : Math.ceil(
+            (new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24)
+        );
+
+        let urgencyLevel = "";
+        if (days <= 0) {
+            urgencyLevel = "CRITICAL - Product is EXPIRED";
+        } else if (days === 1) {
+            urgencyLevel = "URGENT - Expires TOMORROW";
+        } else if (days === 2) {
+            urgencyLevel = "HIGH - Expires in 2 days";
+        } else if (days === 3) {
+            urgencyLevel = "MODERATE - Expires in 3 days";
+        } else {
+            urgencyLevel = "WARNING - Expiring soon";
+        }
+
         const prompt = `
-Generate a SHORT urgent health warning (max 50 words) for:
+Generate a SHORT health warning (max 50 words) for:
 
 Product: ${productName}
 Expiry Date: ${new Date(expiryDate).toLocaleDateString()}
+Days Remaining: ${days <= 0 ? "EXPIRED" : days + " day(s)"}
+Urgency: ${urgencyLevel}
 
-Make it urgent but not alarming. Include actionable advice.
+Make it ${days <= 0 ? "CRITICAL and direct - tell them to dispose immediately" : days === 1 ? "very urgent" : "urgent but helpful"}. Include specific actionable advice.
 `;
 
         const result = await model.generateContent(prompt);
@@ -77,6 +99,9 @@ Make it urgent but not alarming. Include actionable advice.
         return text.trim();
     } catch (error) {
         console.error("❌ Gemini AI error:", error.message);
+        if (daysRemaining !== null && daysRemaining <= 0) {
+            return `⛔ ${productName} has EXPIRED. Do not consume. Dispose immediately.`;
+        }
         return `⚠️ ${productName} is expiring soon on ${new Date(
             expiryDate
         ).toLocaleDateString()}. Check quality before use.`;

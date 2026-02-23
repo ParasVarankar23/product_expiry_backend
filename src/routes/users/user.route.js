@@ -38,10 +38,10 @@ router.post("/register-company", protect, registerUserInCompany);
 
 
 // Owner creates admin (owner authenticated)
-router.post("/owner-create-admin", protectCompanyOwner, ownerCreateAdmin);
+router.post("/owner-create-admin", protect, protectCompanyOwner, ownerCreateAdmin);
 
 // Owner creates manager (owner authenticated)
-router.post("/owner-create-manager", protectCompanyOwner, ownerCreateManager);
+router.post("/owner-create-manager", protect, protectCompanyOwner, ownerCreateManager);
 
 // Verify email OTP
 router.post("/verify-email", verifyEmailOtp);

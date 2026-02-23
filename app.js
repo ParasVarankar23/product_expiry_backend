@@ -8,8 +8,12 @@ import { startExpiryJob } from "./src/jobs/expiry.job.js";
 
 import paymentRoute from "./src/routes/superadmin/payment.route.js";
 import superadminRoute from "./src/routes/superadmin/superadmin.route.js";
+import cartRoute from "./src/routes/users/cart.route.js";
 import companyRoute from "./src/routes/users/company.route.js";
 import dashboardRoute from "./src/routes/users/dashboard.route.js";
+import feedbackRoute from "./src/routes/users/feedback.route.js";
+import imageProductRoute from "./src/routes/users/imageProduct.route.js";
+import orderRoute from "./src/routes/users/order.route.js";
 import productRoute from "./src/routes/users/product.route.js";
 import userRoute from "./src/routes/users/user.route.js";
 
@@ -51,8 +55,12 @@ app.use(cookieParser());
 
 app.use("/api/user", userRoute);
 app.use("/api/company", companyRoute);
-app.use("/api/product", productRoute);
+app.use("/api/products", productRoute);
 app.use("/api/dashboard", dashboardRoute);
+app.use("/api/cart", cartRoute);
+app.use("/api/orders", orderRoute);
+app.use("/api/image-product", imageProductRoute);
+app.use("/api/feedback", feedbackRoute);
 app.use("/api/superadmin", superadminRoute);
 app.use("/api/payment", paymentRoute);
 

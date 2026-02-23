@@ -1,4 +1,6 @@
+import Order from "../../models/users/order.model.js";
 import Product from "../../models/users/product.model.js";
+import User from "../../models/users/user.model.js";
 
 /* ======================================================
    ADMIN DASHBOARD
@@ -60,6 +62,67 @@ export const getAdminDashboard = async (req, res, next) => {
             aiAdvice: { $ne: "" },
         });
 
+        // Total staff count
+        const totalStaff = await User.countDocuments({
+            companyId: req.user.companyId,
+        });
+
+        // Staff by role
+        const staffByRole = await User.aggregate([
+            { $match: { companyId: req.user.companyId } },
+            {
+                $group: {
+                    _id: "$role",
+                    count: { $sum: 1 },
+                },
+            },
+        ]);
+
+        // Total orders
+        const totalOrders = await Order.countDocuments({
+            companyId: req.user.companyId,
+        });
+
+        // Products sold (sum of quantities from completed orders)
+        const soldStats = await Order.aggregate([
+            {
+                $match: {
+                    companyId: req.user.companyId,
+                    paymentStatus: "completed",
+                },
+            },
+            { $unwind: "$items" },
+            {
+                $group: {
+                    _id: null,
+                    totalSold: { $sum: "$items.quantity" },
+                    totalRevenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
+                },
+            },
+        ]);
+
+        const productsSold = soldStats.length > 0 ? soldStats[0].totalSold : 0;
+        const totalRevenue = soldStats.length > 0 ? soldStats[0].totalRevenue : 0;
+
+        // Total stock remaining
+        const stockStats = await Product.aggregate([
+            { $match: { companyId: req.user.companyId } },
+            {
+                $group: {
+                    _id: null,
+                    totalStock: { $sum: "$stock" },
+                },
+            },
+        ]);
+
+        const remainingStock = stockStats.length > 0 ? stockStats[0].totalStock : 0;
+
+        // Recent orders
+        const recentOrders = await Order.find({ companyId: req.user.companyId })
+            .populate("userId", "name email")
+            .sort({ createdAt: -1 })
+            .limit(5);
+
         res.status(200).json({
             success: true,
             dashboard: {
@@ -68,8 +131,15 @@ export const getAdminDashboard = async (req, res, next) => {
                 activeProducts,
                 expiringSoon,
                 productsWithAI,
+                totalStaff,
+                staffByRole,
+                totalOrders,
+                productsSold,
+                totalRevenue,
+                remainingStock,
                 categoryStats,
                 recentProducts,
+                recentOrders,
             },
         });
     } catch (error) {
@@ -83,10 +153,10 @@ export const getAdminDashboard = async (req, res, next) => {
 
 export const getStoreManagerDashboard = async (req, res, next) => {
     try {
-        if (req.user.role !== "store_manager") {
+        if (req.user.role !== "manager") {
             return res.status(403).json({
                 success: false,
-                message: "Store manager access only",
+                message: "Manager access only",
             });
         }
 
@@ -97,7 +167,7 @@ export const getStoreManagerDashboard = async (req, res, next) => {
 
         const userId = req.user._id;
 
-        // Total products added by store manager
+        // Total products added by manager
         const totalProducts = await Product.countDocuments({
             addedBy: userId,
         });
@@ -146,6 +216,53 @@ export const getStoreManagerDashboard = async (req, res, next) => {
             aiAdvice: { $ne: "" },
         });
 
+        // Total staff count (same company)
+        const totalStaff = await User.countDocuments({
+            companyId: req.user.companyId,
+        });
+
+        // Products sold by this manager
+        const managerProductIds = await Product.find({ addedBy: userId }).distinct("_id");
+
+        const soldStats = await Order.aggregate([
+            {
+                $match: {
+                    companyId: req.user.companyId,
+                    paymentStatus: "completed",
+                    "items.productId": { $in: managerProductIds },
+                },
+            },
+            { $unwind: "$items" },
+            {
+                $match: {
+                    "items.productId": { $in: managerProductIds },
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalSold: { $sum: "$items.quantity" },
+                    totalRevenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
+                },
+            },
+        ]);
+
+        const productsSold = soldStats.length > 0 ? soldStats[0].totalSold : 0;
+        const totalRevenue = soldStats.length > 0 ? soldStats[0].totalRevenue : 0;
+
+        // Remaining stock
+        const stockStats = await Product.aggregate([
+            { $match: { addedBy: userId } },
+            {
+                $group: {
+                    _id: null,
+                    totalStock: { $sum: "$stock" },
+                },
+            },
+        ]);
+
+        const remainingStock = stockStats.length > 0 ? stockStats[0].totalStock : 0;
+
         res.status(200).json({
             success: true,
             dashboard: {
@@ -154,6 +271,10 @@ export const getStoreManagerDashboard = async (req, res, next) => {
                 activeProducts,
                 expiringSoon,
                 productsWithAI,
+                totalStaff,
+                productsSold,
+                totalRevenue,
+                remainingStock,
                 categoryStats,
                 recentProducts,
             },

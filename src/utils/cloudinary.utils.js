@@ -1,4 +1,8 @@
 import cloudinary from "cloudinary";
+import dotenv from "dotenv";
+
+// Ensure environment variables are loaded
+dotenv.config();
 
 cloudinary.v2.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,

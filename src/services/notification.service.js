@@ -6,7 +6,7 @@ import { sendSMS } from "../utils/sendSMS.utils.js";
    SEND EMAIL NOTIFICATION
 ====================================================== */
 
-export const sendEmailNotification = async (user, product, type = "expiry") => {
+export const sendEmailNotification = async (user, product, type = "expiry", daysRemaining = null) => {
     try {
         if (!user?.email) {
             console.warn("⚠️ User email not found");
@@ -35,18 +35,36 @@ export const sendEmailNotification = async (user, product, type = "expiry") => {
                 </div>
             `;
         } else if (type === "expiry") {
-            subject = `⚠️ Product Expiring Soon: ${product.name}`;
+            const isExpired = daysRemaining !== null && daysRemaining <= 0;
+            const urgencyColor = isExpired ? "#d63031" : daysRemaining === 1 ? "#e17055" : daysRemaining === 2 ? "#fdcb6e" : "#ff6b6b";
+            const urgencyIcon = isExpired ? "⛔" : daysRemaining === 1 ? "🚨" : daysRemaining === 2 ? "⚠️" : "⏰";
+
+            let urgencyMessage = "";
+            if (isExpired) {
+                urgencyMessage = "has EXPIRED!";
+            } else if (daysRemaining === 1) {
+                urgencyMessage = "expires TOMORROW!";
+            } else if (daysRemaining === 2) {
+                urgencyMessage = "expires in 2 DAYS!";
+            } else if (daysRemaining === 3) {
+                urgencyMessage = "expires in 3 days!";
+            } else {
+                urgencyMessage = "is expiring soon!";
+            }
+
+            subject = `${urgencyIcon} Product Expiry Alert: ${product.name} ${urgencyMessage}`;
             html = `
                 <div style="font-family: Arial, sans-serif; padding: 20px;">
-                    <h2 style="color: #ff6b6b;">⚠️ Product Expiry Alert</h2>
+                    <h2 style="color: ${urgencyColor};">${urgencyIcon} Product Expiry Alert</h2>
                     <p>Hi ${user.name || "User"},</p>
-                    <p><strong>${product.name}</strong> is expiring soon!</p>
+                    <p><strong>${product.name}</strong> ${urgencyMessage}</p>
                     <ul>
                         <li><strong>Expiry Date:</strong> ${expiryDate}</li>
+                        ${daysRemaining !== null ? `<li><strong>Days Remaining:</strong> ${isExpired ? "EXPIRED" : daysRemaining + " day(s)"}</li>` : ""}
                         <li><strong>Status:</strong> ${product.status === "expired" ? "⛔ EXPIRED" : "⏰ Expiring Soon"}</li>
                     </ul>
                     ${product.aiAdvice ? `<div style="background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107;"><strong>🤖 AI Health Warning:</strong><br/>${product.aiAdvice}</div>` : ""}
-                    <p style="color: #d63031;">Please consume safely or dispose properly.</p>
+                    <p style="color: ${urgencyColor}; font-weight: bold;">Please ${isExpired ? "dispose immediately" : "consume safely before expiry"} or dispose properly.</p>
                     <p>Thank you,<br/>Product Expiry Team</p>
                 </div>
             `;
@@ -68,7 +86,7 @@ export const sendEmailNotification = async (user, product, type = "expiry") => {
    SEND WHATSAPP NOTIFICATION (via Twilio)
 ====================================================== */
 
-export const sendWhatsAppNotification = async (user, product, type = "expiry") => {
+export const sendWhatsAppNotification = async (user, product, type = "expiry", daysRemaining = null) => {
     try {
         if (!user?.phone) {
             console.warn("⚠️ User phone not found");
@@ -83,7 +101,23 @@ export const sendWhatsAppNotification = async (user, product, type = "expiry") =
         if (type === "new") {
             message = `✅ *New Product Added*\n\nProduct: ${product.name}\nCategory: ${product.category || "N/A"}\nExpiry: ${expiryDate}\n\n${product.aiAdvice ? `🤖 Safety Advice:\n${product.aiAdvice}` : ""}`;
         } else if (type === "expiry") {
-            message = `⚠️ *Product Expiry Alert*\n\n${product.name} is ${product.status === "expired" ? "EXPIRED" : "expiring soon"}!\n\nExpiry Date: ${expiryDate}\n\n${product.aiAdvice ? `🤖 Health Warning:\n${product.aiAdvice}\n\n` : ""}Please consume safely or dispose properly.`;
+            const isExpired = daysRemaining !== null && daysRemaining <= 0;
+            const urgencyIcon = isExpired ? "⛔" : daysRemaining === 1 ? "🚨" : daysRemaining === 2 ? "⚠️" : "⏰";
+
+            let urgencyMessage = "";
+            if (isExpired) {
+                urgencyMessage = "has EXPIRED!";
+            } else if (daysRemaining === 1) {
+                urgencyMessage = "expires TOMORROW!";
+            } else if (daysRemaining === 2) {
+                urgencyMessage = "expires in 2 DAYS!";
+            } else if (daysRemaining === 3) {
+                urgencyMessage = "expires in 3 days!";
+            } else {
+                urgencyMessage = "is expiring soon!";
+            }
+
+            message = `${urgencyIcon} *Product Expiry Alert*\n\n${product.name} ${urgencyMessage}\n\nExpiry Date: ${expiryDate}\n${daysRemaining !== null && !isExpired ? `Days Remaining: ${daysRemaining}\n` : ""}${isExpired ? "Status: EXPIRED\n" : ""}\n${product.aiAdvice ? `🤖 Health Warning:\n${product.aiAdvice}\n\n` : ""}Please ${isExpired ? "dispose immediately" : "consume safely"} or dispose properly.`;
         }
 
         // Twilio WhatsApp format: whatsapp:+919876543210
@@ -101,13 +135,13 @@ export const sendWhatsAppNotification = async (user, product, type = "expiry") =
    BATCH NOTIFICATION SENDER
 ====================================================== */
 
-export const sendBatchNotifications = async (users, product, type = "expiry") => {
+export const sendBatchNotifications = async (users, product, type = "expiry", daysRemaining = null) => {
     try {
         const emailPromises = users.map((user) =>
-            sendEmailNotification(user, product, type)
+            sendEmailNotification(user, product, type, daysRemaining)
         );
         const whatsappPromises = users.map((user) =>
-            sendWhatsAppNotification(user, product, type)
+            sendWhatsAppNotification(user, product, type, daysRemaining)
         );
 
         await Promise.allSettled([...emailPromises, ...whatsappPromises]);

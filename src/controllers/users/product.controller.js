@@ -12,7 +12,7 @@ import { uploadBase64File } from "../../utils/cloudinary.utils.js";
 
 export const addProduct = async (req, res, next) => {
     try {
-        const { name, category, description, packingDate, expiryDate, expiredDate, image, assignedUsers } = req.body;
+        const { name, category, description, packingDate, expiryDate, expiredDate, image, assignedUsers, price, stock, isAvailableForSale } = req.body;
 
         // Validate required fields
         if (!name || !expiryDate) {
@@ -51,6 +51,9 @@ export const addProduct = async (req, res, next) => {
             expiryDate,
             expiredDate: expiredDate || null,
             image: imageUrl,
+            price: price || 0,
+            stock: stock || 0,
+            isAvailableForSale: isAvailableForSale !== undefined ? isAvailableForSale : true,
             companyId: req.user.companyId,
             addedBy: req.user._id,
             assignedUsers: assignedUsers || [],
@@ -179,7 +182,7 @@ export const getProductById = async (req, res, next) => {
 export const updateProduct = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, category, description, expiryDate, image, assignedUsers } =
+        const { name, category, description, expiryDate, image, assignedUsers, price, stock, isAvailableForSale } =
             req.body;
 
         const product = await Product.findById(id);
@@ -209,6 +212,9 @@ export const updateProduct = async (req, res, next) => {
         if (description) product.description = description;
         if (expiryDate) product.expiryDate = expiryDate;
         if (assignedUsers) product.assignedUsers = assignedUsers;
+        if (price !== undefined) product.price = price;
+        if (stock !== undefined) product.stock = stock;
+        if (isAvailableForSale !== undefined) product.isAvailableForSale = isAvailableForSale;
 
         // Update image if provided
         if (image) {
@@ -285,6 +291,7 @@ export const deleteProduct = async (req, res, next) => {
 
 /* ======================================================
    CHECK EXPIRY PRODUCTS (CRON READY)
+   Sends notifications at 3 days, 2 days, 1 day before expiry, and when expired
 ====================================================== */
 
 export const checkExpiryProducts = async () => {
@@ -292,13 +299,23 @@ export const checkExpiryProducts = async () => {
         console.log("🔍 Running expiry check...");
 
         const now = new Date();
-        const sevenDaysFromNow = new Date(
-            now.getTime() + 7 * 24 * 60 * 60 * 1000
-        );
+        now.setHours(0, 0, 0, 0); // Start of today
 
-        // Find products expiring within 7 days or already expired
+        const threeDaysFromNow = new Date(now);
+        threeDaysFromNow.setDate(now.getDate() + 3);
+        threeDaysFromNow.setHours(23, 59, 59, 999);
+
+        const twoDaysFromNow = new Date(now);
+        twoDaysFromNow.setDate(now.getDate() + 2);
+        twoDaysFromNow.setHours(23, 59, 59, 999);
+
+        const oneDayFromNow = new Date(now);
+        oneDayFromNow.setDate(now.getDate() + 1);
+        oneDayFromNow.setHours(23, 59, 59, 999);
+
+        // Find products expiring within 3 days or already expired
         const expiringProducts = await Product.find({
-            expiryDate: { $lte: sevenDaysFromNow },
+            expiryDate: { $lte: threeDaysFromNow },
             status: { $in: ["active", "expired"] },
         })
             .populate("addedBy", "name email phone")
@@ -306,42 +323,93 @@ export const checkExpiryProducts = async () => {
 
         console.log(`📦 Found ${expiringProducts.length} expiring products`);
 
+        let notificationsSent = 0;
+
         for (const product of expiringProducts) {
+            const expiryDate = new Date(product.expiryDate);
+            expiryDate.setHours(0, 0, 0, 0);
+
+            // Calculate days remaining
+            const diffTime = expiryDate.getTime() - now.getTime();
+            const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            console.log(`📅 Product: ${product.name}, Days remaining: ${daysRemaining}`);
+
             // Update status if expired
-            if (new Date(product.expiryDate) < now && product.status !== "expired") {
+            if (daysRemaining < 0 && product.status !== "expired") {
                 product.status = "expired";
-                await product.save();
+                if (!product.expiredDate) {
+                    product.expiredDate = now;
+                }
             }
 
-            // Regenerate AI advice
-            const { generateExpiryWarning } = await import(
-                "../services/gemini.service.js"
-            );
-            product.aiAdvice = await generateExpiryWarning(
-                product.name,
-                product.expiryDate
-            );
+            // Determine if we should send notification
+            let shouldNotify = false;
+            let notificationType = "";
+
+            if (daysRemaining <= 0 && !product.notificationsSent.expired) {
+                shouldNotify = true;
+                notificationType = "expired";
+                product.notificationsSent.expired = true;
+            } else if (daysRemaining === 1 && !product.notificationsSent.oneDay) {
+                shouldNotify = true;
+                notificationType = "oneDay";
+                product.notificationsSent.oneDay = true;
+            } else if (daysRemaining === 2 && !product.notificationsSent.twoDays) {
+                shouldNotify = true;
+                notificationType = "twoDays";
+                product.notificationsSent.twoDays = true;
+            } else if (daysRemaining === 3 && !product.notificationsSent.threeDays) {
+                shouldNotify = true;
+                notificationType = "threeDays";
+                product.notificationsSent.threeDays = true;
+            }
+
+            if (shouldNotify) {
+                console.log(`🔔 Sending ${notificationType} notification for: ${product.name}`);
+
+                // Regenerate AI advice based on urgency
+                const { generateExpiryWarning } = await import(
+                    "../services/gemini.service.js"
+                );
+                product.aiAdvice = await generateExpiryWarning(
+                    product.name,
+                    product.expiryDate,
+                    daysRemaining
+                );
+
+                // Collect all users to notify
+                const usersToNotify = [];
+
+                if (product.addedBy) {
+                    usersToNotify.push(product.addedBy);
+                }
+
+                if (product.assignedUsers && product.assignedUsers.length > 0) {
+                    usersToNotify.push(...product.assignedUsers);
+                }
+
+                // Send notifications
+                if (usersToNotify.length > 0) {
+                    await sendBatchNotifications(
+                        usersToNotify,
+                        product,
+                        "expiry",
+                        daysRemaining
+                    );
+                    notificationsSent++;
+                }
+            }
+
             await product.save();
-
-            // Collect all users to notify
-            const usersToNotify = [];
-
-            if (product.addedBy) {
-                usersToNotify.push(product.addedBy);
-            }
-
-            if (product.assignedUsers && product.assignedUsers.length > 0) {
-                usersToNotify.push(...product.assignedUsers);
-            }
-
-            // Send notifications
-            if (usersToNotify.length > 0) {
-                await sendBatchNotifications(usersToNotify, product, "expiry");
-            }
         }
 
-        console.log("✅ Expiry check completed");
-        return { success: true, count: expiringProducts.length };
+        console.log(`✅ Expiry check completed. Notifications sent: ${notificationsSent}`);
+        return {
+            success: true,
+            count: expiringProducts.length,
+            notificationsSent
+        };
     } catch (error) {
         console.error("❌ Expiry check failed:", error.message);
         return { success: false, error: error.message };
