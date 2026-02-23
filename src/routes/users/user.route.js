@@ -2,23 +2,24 @@ import express from "express";
 
 import {
    changePassword,
+   createStaff,
+   deleteStaff,
    directLoginUser,
    forgotPassword,
+   getCompanyStaff,
    getProfile,
    googleLogin,
    loginUser,
-   ownerCreateAdmin,
-   ownerCreateManager,
    publicRegisterUser,
-   registerUserInCompany,
    resetPassword,
    setPassword,
    updateProfile,
+   updateStaff,
    verifyEmailOtp,
    verifyForgotOtp,
 } from "../../controllers/users/user.controller.js";
 
-import { protect, protectCompanyOwner } from "../../middleware/auth.middleware.js";
+import { protect } from "../../middleware/auth.middleware.js";
 
 
 const router = express.Router();
@@ -33,18 +34,16 @@ router.post("/public-register", publicRegisterUser);
 // Direct user login (email + name + company code - no password needed)
 router.post("/direct-login", directLoginUser);
 
-// Protected manager registration (admin creates manager)
-router.post("/register-company", protect, registerUserInCompany);
-
-
-// Owner creates admin (owner authenticated)
-router.post("/owner-create-admin", protect, protectCompanyOwner, ownerCreateAdmin);
-
-// Owner creates manager (owner authenticated)
-router.post("/owner-create-manager", protect, protectCompanyOwner, ownerCreateManager);
 
 // Verify email OTP
 router.post("/verify-email", verifyEmailOtp);
+
+// Staff management (protected) - allow owner or admin via `protect` middleware;
+// controller enforces finer-grained rules (owner vs admin) when needed.
+router.get("/staff", protect, getCompanyStaff);
+router.post("/staff", protect, createStaff);
+router.put("/staff/:id", protect, updateStaff);
+router.delete("/staff/:id", protect, deleteStaff);
 
 // Login with email OR phone
 router.post("/login", loginUser);

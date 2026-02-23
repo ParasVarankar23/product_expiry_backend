@@ -143,7 +143,8 @@ export const getAdminDashboard = async (req, res, next) => {
             },
         });
     } catch (error) {
-        next(error);
+        console.error("getAdminDashboard error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -280,7 +281,8 @@ export const getStoreManagerDashboard = async (req, res, next) => {
             },
         });
     } catch (error) {
-        next(error);
+        console.error("getStoreManagerDashboard error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -368,7 +370,8 @@ export const getUserDashboard = async (req, res, next) => {
             },
         });
     } catch (error) {
-        next(error);
+        console.error("getUserDashboard error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -521,7 +524,8 @@ export const getCompanyOwnerDashboard = async (req, res, next) => {
             },
         });
     } catch (error) {
-        next(error);
+        console.error("getCompanyOwnerDashboard error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 

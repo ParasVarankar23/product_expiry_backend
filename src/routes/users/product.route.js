@@ -4,8 +4,9 @@ import {
     deleteProduct,
     getProductById,
     getProducts,
-    updateProduct,
+    updateProduct   // ✅ THIS WAS MISSING
 } from "../../controllers/users/product.controller.js";
+
 import { protect } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();

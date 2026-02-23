@@ -100,8 +100,8 @@ export const createOrder = async (req, res, next) => {
             amount: totalAmount,
         });
     } catch (error) {
-        console.error("Create order error:", error);
-        next(error);
+        console.error("createOrder error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -179,8 +179,8 @@ export const verifyPayment = async (req, res, next) => {
             order,
         });
     } catch (error) {
-        console.error("Payment verification error:", error);
-        next(error);
+        console.error("verifyPayment error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -216,7 +216,8 @@ export const getUserOrders = async (req, res, next) => {
             },
         });
     } catch (error) {
-        next(error);
+        console.error("getUserOrders error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -255,7 +256,8 @@ export const getOrderById = async (req, res, next) => {
             order,
         });
     } catch (error) {
-        next(error);
+        console.error("getOrderById error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -299,7 +301,8 @@ export const getAllOrders = async (req, res, next) => {
             },
         });
     } catch (error) {
-        next(error);
+        console.error("getAllOrders error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -348,6 +351,7 @@ export const updateOrderStatus = async (req, res, next) => {
             order,
         });
     } catch (error) {
-        next(error);
+        console.error("updateOrderStatus error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };

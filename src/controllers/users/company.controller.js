@@ -20,7 +20,7 @@ const PLAN_USER_LIMITS = {
 };
 
 const generateAccessToken = (user) =>
-    jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "15m" });
+    jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "60m" });
 
 const generateRefreshToken = (user) =>
     jwt.sign({ id: user._id, role: user.role }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
@@ -376,7 +376,7 @@ export const loginCompanyOwner = async (req, res) => {
         }
 
         // Generate tokens using company ID
-        const accessToken = jwt.sign({ id: company._id, type: "owner" }, process.env.JWT_SECRET, { expiresIn: "15m" });
+        const accessToken = jwt.sign({ id: company._id, type: "owner" }, process.env.JWT_SECRET, { expiresIn: "60m" });
         const refreshToken = jwt.sign({ id: company._id, type: "owner" }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
 
         return res.status(200).json({

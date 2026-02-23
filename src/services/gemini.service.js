@@ -1,11 +1,67 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 /* ======================================================
-   INITIALIZE GEMINI AI
+   INITIALIZE GEMINI AI + AUTO-DETECT MODEL
+   - Detects a model supported by your API key at startup
+   - Chooses the first model that supports generation methods
+   - Falls back gracefully to a non-AI message when no model is available
 ====================================================== */
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+console.log("Loaded GEMINI_API_KEY:", process.env.GEMINI_API_KEY);
 
+let SELECTED_MODEL = null; // e.g. 'text-bison-001' or 'gemini-1.5-flash'
+
+const modelIdFromName = (name) => (typeof name === "string" ? name.replace(/^models\//, "") : name);
+
+const detectSupportedModel = async () => {
+    if (!process.env.GEMINI_API_KEY) return;
+    try {
+        const url = `https://generativelanguage.googleapis.com/v1/models?key=${process.env.GEMINI_API_KEY}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            const txt = await res.text();
+            console.warn("ListModels failed:", res.status, txt);
+            return;
+        }
+        const data = await res.json();
+        const models = data.models || [];
+
+        // Prefer a model that advertises generateContent/generateText
+        const candidate = models.find((m) => {
+            const methods = m.supportedMethods || m.methods || [];
+            return methods.includes("generateContent") || methods.includes("generateText") || methods.includes("chat");
+        }) || models[0];
+
+        if (candidate && candidate.name) {
+            SELECTED_MODEL = modelIdFromName(candidate.name);
+            console.log("Selected AI model:", candidate.name, "->", SELECTED_MODEL);
+        } else if (candidate) {
+            SELECTED_MODEL = modelIdFromName(candidate);
+            console.log("Selected AI model (raw):", SELECTED_MODEL);
+        } else {
+            console.warn("No AI models available for this API key");
+        }
+    } catch (err) {
+        console.warn("Model detection failed:", err?.message || err);
+    }
+};
+
+// Start detection in background (non-blocking)
+detectSupportedModel();
+
+// Export helper to allow other modules to use the detected model / model instance
+export const getDetectedModel = () => SELECTED_MODEL;
+
+export const getGenerativeModelInstance = () => {
+    if (!SELECTED_MODEL) return null;
+    try {
+        return genAI.getGenerativeModel({ model: SELECTED_MODEL });
+    } catch (err) {
+        console.warn("Failed to create generative model instance:", err?.message || err);
+        return null;
+    }
+};
 /* ======================================================
    GENERATE PRODUCT SAFETY ADVICE
 ====================================================== */
@@ -17,7 +73,13 @@ export const generateProductAdvice = async (productName, expiryDate) => {
             return "Please check product safety guidelines and consume before expiry.";
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        // Choose detected model if available
+        if (!SELECTED_MODEL) {
+            console.warn("No AI model selected; skipping generation and returning fallback advice.");
+            return "Please check product safety guidelines and consume before expiry.";
+        }
+
+        const model = genAI.getGenerativeModel({ model: SELECTED_MODEL });
 
         const daysUntilExpiry = Math.ceil(
             (new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24)
@@ -62,24 +124,26 @@ export const generateExpiryWarning = async (productName, expiryDate, daysRemaini
             return `⚠️ ${productName} is expiring soon. Please consume or dispose safely.`;
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        if (!SELECTED_MODEL) {
+            if (daysRemaining !== null && daysRemaining <= 0) {
+                return `⛔ ${productName} has EXPIRED. Do not consume. Dispose immediately.`;
+            }
+            console.warn("No AI model selected; using simple expiry warning fallback.");
+            return `⚠️ ${productName} is expiring soon. Please consume or dispose safely.`;
+        }
+
+        const model = genAI.getGenerativeModel({ model: SELECTED_MODEL });
 
         const days = daysRemaining !== null ? daysRemaining : Math.ceil(
             (new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24)
         );
 
         let urgencyLevel = "";
-        if (days <= 0) {
-            urgencyLevel = "CRITICAL - Product is EXPIRED";
-        } else if (days === 1) {
-            urgencyLevel = "URGENT - Expires TOMORROW";
-        } else if (days === 2) {
-            urgencyLevel = "HIGH - Expires in 2 days";
-        } else if (days === 3) {
-            urgencyLevel = "MODERATE - Expires in 3 days";
-        } else {
-            urgencyLevel = "WARNING - Expiring soon";
-        }
+        if (days <= 0) urgencyLevel = "CRITICAL - Product is EXPIRED";
+        else if (days === 1) urgencyLevel = "URGENT - Expires TOMORROW";
+        else if (days === 2) urgencyLevel = "HIGH - Expires in 2 days";
+        else if (days === 3) urgencyLevel = "MODERATE - Expires in 3 days";
+        else urgencyLevel = "WARNING - Expiring soon";
 
         const prompt = `
 Generate a SHORT health warning (max 50 words) for:

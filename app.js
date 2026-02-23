@@ -1,24 +1,31 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import dotenv from "dotenv";
 import express from "express";
 import connectDB from "./src/init/db.js";
-import { startExpiryJob } from "./src/jobs/expiry.job.js";
 
+// Routes and scheduled jobs are dynamically imported after dotenv.config()
+let paymentRoute, superadminRoute, cartRoute, companyRoute, dashboardRoute, feedbackRoute, imageProductRoute, orderRoute, productRoute, userRoute;
+let startExpiryJob;
 
-import paymentRoute from "./src/routes/superadmin/payment.route.js";
-import superadminRoute from "./src/routes/superadmin/superadmin.route.js";
-import cartRoute from "./src/routes/users/cart.route.js";
-import companyRoute from "./src/routes/users/company.route.js";
-import dashboardRoute from "./src/routes/users/dashboard.route.js";
-import feedbackRoute from "./src/routes/users/feedback.route.js";
-import imageProductRoute from "./src/routes/users/imageProduct.route.js";
-import orderRoute from "./src/routes/users/order.route.js";
-import productRoute from "./src/routes/users/product.route.js";
-import userRoute from "./src/routes/users/user.route.js";
-
-dotenv.config();
 connectDB();
+
+// Dynamically import job and routes after env is configured
+({ startExpiryJob } = await import("./src/jobs/expiry.job.js"));
+(
+    paymentRoute = (await import("./src/routes/superadmin/payment.route.js")).default,
+    superadminRoute = (await import("./src/routes/superadmin/superadmin.route.js")).default,
+    cartRoute = (await import("./src/routes/users/cart.route.js")).default,
+    companyRoute = (await import("./src/routes/users/company.route.js")).default,
+    dashboardRoute = (await import("./src/routes/users/dashboard.route.js")).default,
+    feedbackRoute = (await import("./src/routes/users/feedback.route.js")).default,
+    imageProductRoute = (await import("./src/routes/users/imageProduct.route.js")).default,
+    orderRoute = (await import("./src/routes/users/order.route.js")).default,
+    productRoute = (await import("./src/routes/users/product.route.js")).default,
+    userRoute = (await import("./src/routes/users/user.route.js")).default
+);
 
 // Start cron job for expiry checking
 startExpiryJob();
@@ -47,8 +54,10 @@ app.use(
 );
 
 /* ================== PARSERS ================== */
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Allow larger request bodies (e.g. base64 image uploads). Configure via .env: BODY_PARSER_LIMIT
+const BODY_PARSER_LIMIT = process.env.BODY_PARSER_LIMIT || "10mb";
+app.use(express.json({ limit: BODY_PARSER_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: BODY_PARSER_LIMIT }));
 app.use(cookieParser());
 
 /* ================== ROUTES ================== */

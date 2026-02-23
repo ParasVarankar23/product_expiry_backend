@@ -76,7 +76,8 @@ export const addToCart = async (req, res, next) => {
             cart,
         });
     } catch (error) {
-        next(error);
+        console.error("addToCart error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -121,7 +122,8 @@ export const getCart = async (req, res, next) => {
             itemCount: cart.items.length,
         });
     } catch (error) {
-        next(error);
+        console.error("getCart error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -185,7 +187,8 @@ export const updateCartItem = async (req, res, next) => {
             cart,
         });
     } catch (error) {
-        next(error);
+        console.error("updateCartItem error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -219,7 +222,8 @@ export const removeFromCart = async (req, res, next) => {
             cart,
         });
     } catch (error) {
-        next(error);
+        console.error("removeFromCart error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -247,6 +251,7 @@ export const clearCart = async (req, res, next) => {
             cart,
         });
     } catch (error) {
-        next(error);
+        console.error("clearCart error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };

@@ -22,13 +22,19 @@ export const addProduct = async (req, res, next) => {
             });
         }
 
-        // Check role authorization
-        if (req.user.role !== "admin" && req.user.role !== "manager") {
-            return res.status(403).json({
-                success: false,
-                message: "Only Admin or Manager can add products",
-            });
+        // Determine caller role (support company owner tokens)
+        const callerRole = req.user?.role || (req.company ? "company" : null);
+
+        if (!callerRole) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
         }
+
+        // Check role authorization: allow admin or manager (company owner can act as admin but must have a user context)
+        if (callerRole !== "admin" && callerRole !== "manager" && callerRole !== "company") {
+            return res.status(403).json({ success: false, message: "Only Admin or Manager can add products" });
+        }
+
+        // If req.user is missing we'll map the company owner to a user later (below)
 
         // Upload image to Cloudinary if base64 provided
         let imageUrl = "";
@@ -39,8 +45,34 @@ export const addProduct = async (req, res, next) => {
             imageUrl = image;
         }
 
-        // Generate AI advice
-        const aiAdvice = await generateProductAdvice(name, expiryDate);
+        // Generate AI advice (tolerate failures from the external service)
+        let aiAdvice = "";
+        try {
+            aiAdvice = await generateProductAdvice(name, expiryDate);
+        } catch (aiErr) {
+            console.error("generateProductAdvice failed:", aiErr?.message || aiErr);
+            aiAdvice = "";
+        }
+
+        // Determine addedBy: prefer authenticated user, otherwise try to map company owner to a user
+        let addedById = req.user?._id;
+        if (!addedById && req.company) {
+            // Try to find a user record for the company owner
+            let ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
+            if (!ownerUser) {
+                // create a lightweight owner user so products have an addedBy reference
+                const tmpPassword = `owner-${Date.now()}`;
+                ownerUser = await User.create({
+                    name: req.company.ownerName || "Company Owner",
+                    email: req.company.ownerEmail,
+                    password: tmpPassword,
+                    role: "admin",
+                    companyId: req.company._id,
+                    isVerified: true,
+                });
+            }
+            addedById = ownerUser._id;
+        }
 
         // Create product
         const product = await Product.create({
@@ -54,8 +86,8 @@ export const addProduct = async (req, res, next) => {
             price: price || 0,
             stock: stock || 0,
             isAvailableForSale: isAvailableForSale !== undefined ? isAvailableForSale : true,
-            companyId: req.user.companyId,
-            addedBy: req.user._id,
+            companyId: req.user?.companyId || req.company?._id,
+            addedBy: addedById,
             assignedUsers: assignedUsers || [],
             aiAdvice,
         });
@@ -76,7 +108,9 @@ export const addProduct = async (req, res, next) => {
             product,
         });
     } catch (error) {
-        next(error);
+        console.error("addProduct error:", error);
+        if (error && error.stack) console.error(error.stack);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -91,9 +125,12 @@ export const getProducts = async (req, res, next) => {
         let query = {};
 
         // Role-based filtering
-        if (req.user.role === "admin") {
+        const callerRole = req.user?.role || (req.company ? "admin" : null);
+        if (!callerRole) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+        if (callerRole === "admin") {
             // Admin sees all products
-        } else if (req.user.role === "manager") {
+        } else if (callerRole === "manager") {
             // Manager sees only their products
             query.addedBy = req.user._id;
         } else {
@@ -128,7 +165,8 @@ export const getProducts = async (req, res, next) => {
             },
         });
     } catch (error) {
-        next(error);
+        console.error("getProducts error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -152,12 +190,15 @@ export const getProductById = async (req, res, next) => {
         }
 
         // Check access rights
+        const callerRole = req.user?.role || (req.company ? "admin" : null);
+
+        const userId = req.user?._id?.toString();
+
         const hasAccess =
-            req.user.role === "admin" ||
-            product.addedBy._id.toString() === req.user._id.toString() ||
-            product.assignedUsers.some(
-                (user) => user._id.toString() === req.user._id.toString()
-            );
+            callerRole === "admin" ||
+            (userId && product.addedBy?._id?.toString() === userId) ||
+            (userId && product.assignedUsers.some((user) => user._id.toString() === userId)) ||
+            (!!req.company); // company owner has access to company products
 
         if (!hasAccess) {
             return res.status(403).json({
@@ -171,7 +212,8 @@ export const getProductById = async (req, res, next) => {
             product,
         });
     } catch (error) {
-        next(error);
+        console.error("getProductById error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -194,16 +236,17 @@ export const updateProduct = async (req, res, next) => {
             });
         }
 
-        // Check ownership
+        // Check ownership / permission
+        const callerRole = req.user?.role || (req.company ? "admin" : null);
+        const userId = req.user?._id?.toString();
+
         const isOwner =
-            req.user.role === "admin" ||
-            product.addedBy.toString() === req.user._id.toString();
+            callerRole === "admin" ||
+            (userId && product.addedBy.toString() === userId) ||
+            !!req.company;
 
         if (!isOwner) {
-            return res.status(403).json({
-                success: false,
-                message: "Only admin or product owner can update",
-            });
+            return res.status(403).json({ success: false, message: "Only admin or product owner can update" });
         }
 
         // Update fields
@@ -228,10 +271,12 @@ export const updateProduct = async (req, res, next) => {
 
         // Regenerate AI advice if name or expiry changed
         if (name || expiryDate) {
-            product.aiAdvice = await generateProductAdvice(
-                product.name,
-                product.expiryDate
-            );
+            try {
+                product.aiAdvice = await generateProductAdvice(product.name, product.expiryDate);
+            } catch (aiErr) {
+                console.error("generateProductAdvice failed on update:", aiErr?.message || aiErr);
+                product.aiAdvice = product.aiAdvice || "";
+            }
         }
 
         await product.save();
@@ -245,7 +290,8 @@ export const updateProduct = async (req, res, next) => {
             product,
         });
     } catch (error) {
-        next(error);
+        console.error("updateProduct error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -266,16 +312,17 @@ export const deleteProduct = async (req, res, next) => {
             });
         }
 
-        // Check ownership
+        // Check ownership / permission
+        const callerRole = req.user?.role || (req.company ? "admin" : null);
+        const userId = req.user?._id?.toString();
+
         const isOwner =
-            req.user.role === "admin" ||
-            product.addedBy.toString() === req.user._id.toString();
+            callerRole === "admin" ||
+            (userId && product.addedBy.toString() === userId) ||
+            !!req.company;
 
         if (!isOwner) {
-            return res.status(403).json({
-                success: false,
-                message: "Only admin or product owner can delete",
-            });
+            return res.status(403).json({ success: false, message: "Only admin or product owner can delete" });
         }
 
         await Product.findByIdAndDelete(id);
@@ -285,7 +332,8 @@ export const deleteProduct = async (req, res, next) => {
             message: "Product deleted successfully",
         });
     } catch (error) {
-        next(error);
+        console.error("deleteProduct error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 

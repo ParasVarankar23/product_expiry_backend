@@ -30,13 +30,17 @@ const productSchema = new mongoose.Schema(
 );
 
 /* ================= AUTO UPDATE STATUS ================= */
-productSchema.pre("save", function (next) {
-    if (this.expiryDate && new Date(this.expiryDate) < new Date()) {
-        this.status = "expired";
-    } else {
-        this.status = "active";
+productSchema.pre("save", function () {
+    try {
+        if (this.expiryDate && new Date(this.expiryDate) < new Date()) {
+            this.status = "expired";
+        } else {
+            this.status = "active";
+        }
+    } catch (err) {
+        // do not throw from middleware; log and continue
+        console.error("productSchema.pre save error:", err?.message || err);
     }
-    next();
 });
 
 /* ================= INDEXES ================= */

@@ -63,155 +63,106 @@ export const publicRegisterUser = async (req, res) => {
     }
 };
 
-// 2️⃣ PROTECTED MANAGER REGISTRATION (ADMIN/OWNER CREATES MANAGER, PASSWORD EMAILED)
-export const registerUserInCompany = async (req, res) => {
+/* ========================================
+   COMPANY STAFF: LIST / CREATE / UPDATE / DELETE
+======================================== */
+// Get all staff for a company (protected)
+export const getCompanyStaff = async (req, res) => {
     try {
-        const { name, email } = req.body;
-        if (!name || !email) {
-            return res.status(400).json({ success: false, message: "Name and email are required." });
-        }
+        const companyId = req.company?._id || req.user?.companyId;
+        if (!companyId) return res.status(400).json({ success: false, message: "Company not found" });
 
-        const companyId = req.user.companyId;
-        const company = await companyModel.findById(companyId);
-        if (!company) {
-            return res.status(404).json({ success: false, message: "Company not found." });
-        }
-
-        // Only Admin or Owner can create Manager
-        const isOwner = req.user.email === company.ownerEmail;
-        const isAdmin = req.user.role === "admin";
-        if (!(isAdmin && (isOwner || isAdmin))) {
-            return res.status(403).json({ success: false, message: "Only Owner or Admin can create a Manager." });
-        }
-
-        // Check for duplicate email in company
-        const existing = await User.findOne({ email: email.toLowerCase(), companyId });
-        if (existing) {
-            return res.status(400).json({ success: false, message: "Email already exists in your company." });
-        }
-        // Generate password
-        const password = generateUserPassword(name);
-        // Create user
-        const user = await User.create({
-            name,
-            email: email.toLowerCase(),
-            password,
-            role: "manager",
-            companyId,
-            isVerified: true
-        });
-        // Send password to email
-        await sendWelcomeEmail(user, password);
-        return res.status(201).json({ success: true, message: "Manager registered successfully under your company. Password sent to email." });
+        const users = await User.find({ companyId }).select("name email role");
+        return res.status(200).json({ success: true, users });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
 };
 
-
-// 4️⃣ OWNER CREATES ADMIN (OWNER AUTHENTICATED)
-export const ownerCreateAdmin = async (req, res) => {
+// Create staff (protected) - only owner or admin
+export const createStaff = async (req, res) => {
     try {
-        const { name, email } = req.body;
-        if (!name || !email) {
-            return res.status(400).json({ success: false, message: "Name and email are required." });
-        }
+        const { name, email, role } = req.body;
+        if (!name || !email) return res.status(400).json({ success: false, message: "Name and email required" });
 
-        // req.company is set by owner authentication middleware
-        if (!req.company) {
-            return res.status(401).json({ success: false, message: "Unauthorized - Owner authentication required" });
-        }
+        const companyId = req.company?._id || req.user?.companyId;
+        if (!companyId) return res.status(400).json({ success: false, message: "Company not found" });
 
-        const companyId = req.company._id;
+        // Permission: owner or admin
+        const isOwner = !!req.company;
+        const isAdmin = req.user?.role === "admin";
+        if (!(isOwner || isAdmin)) return res.status(403).json({ success: false, message: "Only owner or admin can create staff" });
 
-        // Check for duplicate email in company
+        // Prevent creating admin unless owner
+        if (role === "admin" && !isOwner) return res.status(403).json({ success: false, message: "Only owner can create admin" });
+
+        // Duplicate check
         const existing = await User.findOne({ email: email.toLowerCase(), companyId });
-        if (existing) {
-            return res.status(400).json({ success: false, message: "Email already exists in your company." });
-        }
+        if (existing) return res.status(400).json({ success: false, message: "Email already exists in your company" });
 
-        // Generate password
         const password = generateUserPassword(name);
 
-        // Create admin user
-        const user = await User.create({
-            name,
-            email: email.toLowerCase(),
-            password,
-            role: "admin",
-            companyId,
-            isVerified: true
-        });
+        const user = await User.create({ name, email: email.toLowerCase(), password, role: role || "manager", companyId, isVerified: true });
 
-        // Send welcome email with password
         await sendWelcomeEmail(user, password);
 
-        return res.status(201).json({
-            success: true,
-            message: "Admin created successfully. Password sent to email.",
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
-        });
+        return res.status(201).json({ success: true, message: "Staff created", user: { id: user._id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// 5️⃣ OWNER CREATES MANAGER (OWNER AUTHENTICATED)
-export const ownerCreateManager = async (req, res) => {
+// Update staff
+export const updateStaff = async (req, res) => {
     try {
-        const { name, email } = req.body;
-        if (!name || !email) {
-            return res.status(400).json({ success: false, message: "Name and email are required." });
+        const staffId = req.params.id;
+        const { name, role } = req.body;
+
+        const companyId = req.company?._id || req.user?.companyId;
+        if (!companyId) return res.status(400).json({ success: false, message: "Company not found" });
+
+        // Permission: owner or admin
+        const isOwner = !!req.company;
+        const isAdmin = req.user?.role === "admin";
+        if (!(isOwner || isAdmin)) return res.status(403).json({ success: false, message: "Only owner or admin can update staff" });
+
+        const staff = await User.findOne({ _id: staffId, companyId });
+        if (!staff) return res.status(404).json({ success: false, message: "Staff not found" });
+
+        if (name) staff.name = name;
+        if (role) {
+            if (role === "admin" && !isOwner) return res.status(403).json({ success: false, message: "Only owner can assign admin role" });
+            staff.role = role;
         }
 
-        // req.company is set by owner authentication middleware
-        if (!req.company) {
-            return res.status(401).json({ success: false, message: "Unauthorized - Owner authentication required" });
-        }
-
-        const companyId = req.company._id;
-
-        // Check for duplicate email in company
-        const existing = await User.findOne({ email: email.toLowerCase(), companyId });
-        if (existing) {
-            return res.status(400).json({ success: false, message: "Email already exists in your company." });
-        }
-
-        // Generate password
-        const password = generateUserPassword(name);
-
-        // Create manager user
-        const user = await User.create({
-            name,
-            email: email.toLowerCase(),
-            password,
-            role: "manager",
-            companyId,
-            isVerified: true
-        });
-
-        // Send welcome email with password
-        await sendWelcomeEmail(user, password);
-
-        return res.status(201).json({
-            success: true,
-            message: "Manager created successfully. Password sent to email.",
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
-        });
+        await staff.save();
+        return res.status(200).json({ success: true, message: "Staff updated", user: { id: staff._id, name: staff.name, email: staff.email, role: staff.role } });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
 };
+
+// Delete staff
+export const deleteStaff = async (req, res) => {
+    try {
+        const staffId = req.params.id;
+        const companyId = req.company?._id || req.user?.companyId;
+        if (!companyId) return res.status(400).json({ success: false, message: "Company not found" });
+
+        const isOwner = !!req.company;
+        const isAdmin = req.user?.role === "admin";
+        if (!(isOwner || isAdmin)) return res.status(403).json({ success: false, message: "Only owner or admin can delete staff" });
+
+        const staff = await User.findOne({ _id: staffId, companyId });
+        if (!staff) return res.status(404).json({ success: false, message: "Staff not found" });
+
+        await staff.remove();
+        return res.status(200).json({ success: true, message: "Staff deleted" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+;
 
 // 6️⃣ DIRECT USER LOGIN (EMAIL + NAME + COMPANY CODE - NO PASSWORD NEEDED)
 export const directLoginUser = async (req, res) => {
@@ -290,7 +241,7 @@ const generateAccessToken = (user) => {
     return jwt.sign(
         { id: user._id, role: user.role },
         process.env.JWT_SECRET,
-        { expiresIn: "15m" }
+        { expiresIn: "60m" }
     );
 };
 
@@ -444,7 +395,8 @@ export const verifyEmailOtp = async (req, res, next) => {
             refreshToken: generateRefreshToken(user),
         });
     } catch (error) {
-        next(error);
+        console.error("verifyEmailOtp error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -454,12 +406,13 @@ export const verifyEmailOtp = async (req, res, next) => {
 
 export const loginUser = async (req, res, next) => {
     try {
+        // Accept `identifier` (email or phone) to match frontend usage.
         const { identifier, password } = req.body;
 
         if (!identifier || !password) {
             return res.status(400).json({
                 success: false,
-                message: "Identifier and password required",
+                message: "email/phone and password required",
             });
         }
 
@@ -470,26 +423,17 @@ export const loginUser = async (req, res, next) => {
         const user = await User.findOne(query).select("+password");
 
         if (!user || !user.password) {
-            return res.status(401).json({
-                success: false,
-                message: "Invalid credentials",
-            });
+            return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
         if (user.provider === "local" && !user.emailVerified) {
-            return res.status(403).json({
-                success: false,
-                message: "Email not verified",
-            });
+            return res.status(403).json({ success: false, message: "Email not verified" });
         }
 
         const match = await user.comparePassword(password);
 
         if (!match) {
-            return res.status(401).json({
-                success: false,
-                message: "Invalid credentials",
-            });
+            return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
         // Check if company is suspended or inactive
@@ -497,17 +441,38 @@ export const loginUser = async (req, res, next) => {
         if (restrictionCheck.restricted) {
             return res.status(403).json({
                 success: false,
-                message: restrictionCheck.reason || "Your company access is restricted"
+                message: restrictionCheck.reason || "Your company access is restricted",
             });
+        }
+
+        // Include minimal company details if available
+        const respUser = {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            companyId: user.companyId,
+        };
+
+        if (user.companyId) {
+            const company = await companyModel.findById(user.companyId).select("companyName companyCode");
+            if (company) {
+                respUser.company = {
+                    companyName: company.companyName,
+                    companyCode: company.companyCode,
+                };
+            }
         }
 
         res.status(200).json({
             success: true,
             accessToken: generateAccessToken(user),
             refreshToken: generateRefreshToken(user),
+            user: respUser,
         });
     } catch (error) {
-        next(error);
+        console.error("loginUser error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -516,10 +481,43 @@ export const loginUser = async (req, res, next) => {
 ====================================================== */
 
 export const getProfile = async (req, res) => {
-    res.status(200).json({
-        success: true,
-        user: req.user,
-    });
+    try {
+        if (!req.user && !req.company) {
+            return res.status(401).json({ success: false, message: "Not authenticated" });
+        }
+
+        const user = req.user ? (req.user.toObject ? req.user.toObject() : req.user) : null;
+
+        // If user has companyId, populate minimal company details
+        if (user && user.companyId) {
+            const company = await companyModel.findById(user.companyId).select("companyName companyCode");
+            if (company) {
+                user.company = {
+                    companyName: company.companyName,
+                    companyCode: company.companyCode,
+                };
+            }
+        }
+
+        // If no req.user but req.company exists, return owner-style profile
+        if (!user && req.company) {
+            const ownerObj = {
+                id: req.company._id,
+                name: req.company.ownerName || "Company Owner",
+                email: req.company.ownerEmail || null,
+                role: "company",
+                company: {
+                    companyName: req.company.companyName,
+                    companyCode: req.company.companyCode,
+                },
+            };
+            return res.status(200).json({ success: true, user: ownerObj });
+        }
+
+        return res.status(200).json({ success: true, user });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
 };
 
 /* ======================================================
@@ -582,7 +580,8 @@ export const updateProfile = async (req, res, next) => {
             user: updatedUser,
         });
     } catch (error) {
-        next(error);
+        console.error("updateProfile error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -619,7 +618,8 @@ export const setPassword = async (req, res, next) => {
             message: "Password set successfully",
         });
     } catch (error) {
-        next(error);
+        console.error("setPassword error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -700,7 +700,8 @@ export const googleLogin = async (req, res, next) => {
             refreshToken: generateRefreshToken(user),
         });
     } catch (error) {
-        next(error);
+        console.error("googleLogin error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -764,7 +765,8 @@ export const forgotPassword = async (req, res, next) => {
             message: "OTP sent to email",
         });
     } catch (error) {
-        next(error);
+        console.error("forgotPassword error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -822,7 +824,8 @@ export const verifyForgotOtp = async (req, res, next) => {
             message: "OTP verified successfully",
         });
     } catch (error) {
-        next(error);
+        console.error("verifyForgotOtp error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -893,7 +896,8 @@ export const resetPassword = async (req, res, next) => {
             message: "Password reset successfully",
         });
     } catch (error) {
-        next(error);
+        console.error("resetPassword error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -952,6 +956,7 @@ export const changePassword = async (req, res, next) => {
             message: "Password changed successfully",
         });
     } catch (error) {
-        next(error);
+        console.error("changePassword error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };

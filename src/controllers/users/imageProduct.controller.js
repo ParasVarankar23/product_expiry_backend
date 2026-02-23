@@ -1,5 +1,5 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import Product from "../../models/users/product.model.js";
+import { getDetectedModel, getGenerativeModelInstance } from "../../services/gemini.service.js";
 import { sendBatchNotifications } from "../../services/notification.service.js";
 import { uploadBase64File } from "../../utils/cloudinary.utils.js";
 
@@ -25,8 +25,13 @@ export const analyzeProductImage = async (req, res, next) => {
             });
         }
 
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // Use the detected model instance from gemini.service if available
+        let model = getGenerativeModelInstance();
+        if (!model) {
+            const detected = getDetectedModel();
+            console.error("Gemini model unavailable for image analysis; detected:", detected);
+            return res.status(503).json({ success: false, message: "AI image analysis is currently unavailable. Please provide expiry details manually." });
+        }
 
         // Prepare image data
         let imageData;
@@ -111,8 +116,8 @@ Return ONLY valid JSON, no additional text.
             },
         });
     } catch (error) {
-        console.error("Image analysis error:", error);
-        next(error);
+        console.error("Image analysis error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -202,8 +207,8 @@ export const createProductFromImage = async (req, res, next) => {
             notificationSent: daysUntilExpiry <= 3,
         });
     } catch (error) {
-        console.error("Create product from image error:", error);
-        next(error);
+        console.error("createProductFromImage error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
 
@@ -223,8 +228,13 @@ export const analyzeAndCreateProduct = async (req, res, next) => {
         }
 
         // Step 1: Analyze image
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // use detected model instance
+        let model = getGenerativeModelInstance();
+        if (!model) {
+            const detected = getDetectedModel();
+            console.error("Gemini model unavailable for analyze-and-create; detected:", detected);
+            return res.status(503).json({ success: false, message: "AI image analysis is currently unavailable. Please provide expiry details manually." });
+        }
 
         let imageData;
         if (image.startsWith("data:image")) {
@@ -370,7 +380,7 @@ Return ONLY valid JSON, no additional text.
             notificationSent: daysUntilExpiry <= 3,
         });
     } catch (error) {
-        console.error("Analyze and create product error:", error);
-        next(error);
+        console.error("analyzeAndCreateProduct error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
     }
 };
