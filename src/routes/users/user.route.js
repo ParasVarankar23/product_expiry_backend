@@ -2,6 +2,7 @@ import express from "express";
 
 import {
    changePassword,
+   completeGoogleRegistration,
    createStaff,
    deleteStaff,
    directLoginUser,
@@ -50,6 +51,9 @@ router.post("/login", loginUser);
 
 // Google login
 router.post("/google", googleLogin);
+
+// Complete Google registration with company code
+router.post("/google/complete", completeGoogleRegistration);
 
 // Forgot password flow
 router.post("/forgot-password", forgotPassword);

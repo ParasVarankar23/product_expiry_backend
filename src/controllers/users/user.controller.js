@@ -683,42 +683,61 @@ export const setPassword = async (req, res, next) => {
    GOOGLE LOGIN
 ====================================================== */
 
-const verifyGoogleToken = async (idToken) => {
-    const response = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`
-    );
+const verifyGoogleCode = async (code) => {
+    try {
+        // Exchange authorization code for access token
+        const response = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                code,
+                client_id: process.env.GOOGLE_CLIENT_ID,
+                client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
+                redirect_uri: "postmessage",
+                grant_type: "authorization_code",
+            }),
+        });
 
-    if (!response.ok) return null;
+        if (!response.ok) return null;
 
-    const payload = await response.json();
+        const tokenData = await response.json();
+        const accessToken = tokenData.access_token;
 
-    if (
-        process.env.GOOGLE_CLIENT_ID &&
-        payload.aud !== process.env.GOOGLE_CLIENT_ID
-    ) {
+        // Get user info using access token
+        const userResponse = await fetch(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            }
+        );
+
+        if (!userResponse.ok) return null;
+
+        const payload = await userResponse.json();
+        return payload;
+    } catch (error) {
+        console.error("Code verification error:", error);
         return null;
     }
-
-    return payload;
 };
 
 export const googleLogin = async (req, res, next) => {
     try {
-        const { token } = req.body;
+        const { code } = req.body;
 
-        if (!token) {
+        if (!code) {
             return res.status(400).json({
                 success: false,
-                message: "Google token required",
+                message: "Authorization code required",
             });
         }
 
-        const payload = await verifyGoogleToken(token);
+        const payload = await verifyGoogleCode(code);
 
         if (!payload?.email) {
             return res.status(401).json({
                 success: false,
-                message: "Invalid Google token",
+                message: "Invalid Google code",
             });
         }
 
@@ -726,21 +745,14 @@ export const googleLogin = async (req, res, next) => {
 
         let user = await User.findOne({ email });
 
-        if (!user) {
-            user = await User.create({
-                name: payload.name || "Google User",
-                email,
-                avatar: payload.picture || "",
-                provider: "google",
-                emailVerified: true,
-            });
-        } else if (!user.emailVerified) {
-            user.emailVerified = true;
-            await user.save();
-        }
+        // ✅ EXISTING USER WITH COMPANY
+        if (user && user.companyId) {
+            if (!user.emailVerified) {
+                user.emailVerified = true;
+                await user.save();
+            }
 
-        // Check if user has a company and if it's restricted
-        if (user.companyId) {
+            // Check if company is restricted
             const restrictionCheck = await isCompanyRestricted(user.companyId);
             if (restrictionCheck.restricted) {
                 return res.status(403).json({
@@ -748,16 +760,129 @@ export const googleLogin = async (req, res, next) => {
                     message: restrictionCheck.reason || "Your company access is restricted"
                 });
             }
+
+            // Direct login
+            return res.status(200).json({
+                success: true,
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    companyId: user.companyId,
+                },
+                accessToken: generateAccessToken(user),
+                refreshToken: generateRefreshToken(user),
+            });
         }
 
-        res.status(200).json({
-            success: true,
-            accessToken: generateAccessToken(user),
-            refreshToken: generateRefreshToken(user),
+        // ❌ NEW USER - REQUIRE COMPANY CODE
+        if (!user) {
+            return res.status(200).json({
+                success: false,
+                companyCodeRequired: true,
+                googleData: {
+                    email,
+                    name: payload.name || "Google User",
+                    picture: payload.picture || "",
+                },
+                message: "Please enter your company code to continue",
+            });
+        }
+
+        // ⚠️ EXISTING USER WITHOUT COMPANY - REQUIRE COMPANY CODE
+        return res.status(200).json({
+            success: false,
+            companyCodeRequired: true,
+            userId: user._id,
+            googleData: {
+                email,
+                name: user.name,
+                picture: user.avatar || "",
+            },
+            message: "Please enter your company code to continue",
         });
     } catch (error) {
         console.error("googleLogin error:", error?.message || error);
         return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
+    }
+};
+
+/* ======================================================
+   COMPLETE GOOGLE REGISTRATION WITH COMPANY CODE
+====================================================== */
+
+export const completeGoogleRegistration = async (req, res, next) => {
+    try {
+        const { email, name, companyCode } = req.body;
+
+        if (!email || !companyCode) {
+            return res.status(400).json({
+                success: false,
+                message: "Email and company code required",
+            });
+        }
+
+        // Find company by code
+        const company = await companyModel.findOne({
+            companyCode: companyCode.toUpperCase(),
+            isActive: true
+        });
+
+        if (!company) {
+            return res.status(404).json({
+                success: false,
+                message: "Invalid or inactive company code",
+            });
+        }
+
+        // Check company plan status
+        if (company.planStatus !== "active") {
+            return res.status(403).json({
+                success: false,
+                message: "Company plan is not active. Contact your admin.",
+            });
+        }
+
+        let user = await User.findOne({ email: email.toLowerCase() });
+
+        if (!user) {
+            // Create new user with company
+            user = await User.create({
+                name: name || "Google User",
+                email: email.toLowerCase(),
+                provider: "google",
+                isVerified: true,
+                companyId: company._id,
+                role: "user",
+            });
+        } else if (!user.companyId) {
+            // Add company to existing user
+            user.companyId = company._id;
+            user.provider = "google";
+            user.isVerified = true;
+            await user.save();
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Login Successful! 🚀",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                companyId: user.companyId,
+            },
+            accessToken: generateAccessToken(user),
+            refreshToken: generateRefreshToken(user),
+        });
+    } catch (error) {
+        console.error("completeGoogleRegistration error:", error?.message || error);
+        return res.status(500).json({
+            success: false,
+            message: error?.message || "Failed to complete registration"
+        });
     }
 };
 

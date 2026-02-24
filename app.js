@@ -53,6 +53,14 @@ app.use(
     })
 );
 
+/* ================== SECURITY HEADERS ================== */
+// Allow cross-origin window access for OAuth popups
+app.use((req, res, next) => {
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+    res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+    next();
+});
+
 /* ================== PARSERS ================== */
 // Allow larger request bodies (e.g. base64 image uploads). Configure via .env: BODY_PARSER_LIMIT
 const BODY_PARSER_LIMIT = process.env.BODY_PARSER_LIMIT || "10mb";
