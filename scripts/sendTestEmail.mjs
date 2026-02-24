@@ -9,7 +9,7 @@ import { sendMail } from '../src/utils/mailer.utils.js';
 
     try {
         console.log('Sending test email to', to);
-        await sendMail({ to, subject: 'Product Expiry - Test Email', html: '<p>This is a test email from Product Expiry app.</p>' });
+        await sendMail({ to, subject: 'Product Expiry Reminder - Test Email', html: '<p>This is a test email from Product Expiry Reminder app.</p>' });
         console.log('Test email sent — check inbox and spam folder.');
         process.exit(0);
     } catch (err) {

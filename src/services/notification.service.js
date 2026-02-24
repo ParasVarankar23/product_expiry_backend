@@ -31,7 +31,7 @@ export const sendEmailNotification = async (user, product, type = "expiry", days
                         <li><strong>Expiry Date:</strong> ${expiryDate}</li>
                     </ul>
                     ${product.aiAdvice ? `<div style="background: #f0f8ff; padding: 15px; border-radius: 8px;"><strong>🤖 AI Safety Advice:</strong><br/>${product.aiAdvice}</div>` : ""}
-                    <p>Thank you,<br/>Product Expiry Team</p>
+                    <p>Thank you,<br/>Product Expiry Reminder Team</p>
                 </div>
             `;
         } else if (type === "expiry") {
@@ -52,10 +52,10 @@ export const sendEmailNotification = async (user, product, type = "expiry", days
                 urgencyMessage = "is expiring soon!";
             }
 
-            subject = `${urgencyIcon} Product Expiry Alert: ${product.name} ${urgencyMessage}`;
+            subject = `${urgencyIcon} Product Expiry Reminder Alert: ${product.name} ${urgencyMessage}`;
             html = `
                 <div style="font-family: Arial, sans-serif; padding: 20px;">
-                    <h2 style="color: ${urgencyColor};">${urgencyIcon} Product Expiry Alert</h2>
+                    <h2 style="color: ${urgencyColor};">${urgencyIcon} Product Expiry Reminder Alert</h2>
                     <p>Hi ${user.name || "User"},</p>
                     <p><strong>${product.name}</strong> ${urgencyMessage}</p>
                     <ul>
@@ -65,7 +65,7 @@ export const sendEmailNotification = async (user, product, type = "expiry", days
                     </ul>
                     ${product.aiAdvice ? `<div style="background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107;"><strong>🤖 AI Health Warning:</strong><br/>${product.aiAdvice}</div>` : ""}
                     <p style="color: ${urgencyColor}; font-weight: bold;">Please ${isExpired ? "dispose immediately" : "consume safely before expiry"} or dispose properly.</p>
-                    <p>Thank you,<br/>Product Expiry Team</p>
+                    <p>Thank you,<br/>Product Expiry Reminder Team</p>
                 </div>
             `;
         }
@@ -117,10 +117,10 @@ export const sendWhatsAppNotification = async (user, product, type = "expiry", d
                 urgencyMessage = "is expiring soon!";
             }
 
-            message = `${urgencyIcon} *Product Expiry Alert*\n\n${product.name} ${urgencyMessage}\n\nExpiry Date: ${expiryDate}\n${daysRemaining !== null && !isExpired ? `Days Remaining: ${daysRemaining}\n` : ""}${isExpired ? "Status: EXPIRED\n" : ""}\n${product.aiAdvice ? `🤖 Health Warning:\n${product.aiAdvice}\n\n` : ""}Please ${isExpired ? "dispose immediately" : "consume safely"} or dispose properly.`;
+            message = `${urgencyIcon} *Product Expiry Reminder Alert*\n\n${product.name} ${urgencyMessage}\n\nExpiry Date: ${expiryDate}\n${daysRemaining !== null && !isExpired ? `Days Remaining: ${daysRemaining}\n` : ""}${isExpired ? "Status: EXPIRED\n" : ""}\n${product.aiAdvice ? `🤖 Health Warning:\n${product.aiAdvice}\n\n` : ""}Please ${isExpired ? "dispose immediately" : "consume safely"} or dispose properly.`;
         }
 
-        // Twilio WhatsApp format: whatsapp:+919876543210
+        // Twilio WhatsApp format: whatsapp:+917767855084
         const whatsappNumber = `whatsapp:${formattedPhone}`;
 
         await sendSMS(whatsappNumber, message);

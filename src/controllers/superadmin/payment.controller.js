@@ -87,7 +87,7 @@ export const verifyPayment = async (req, res) => {
         // Send confirmation email to owner
         await sendMail({
             to: company.ownerEmail,
-            subject: `Payment Successful – Your Product Expiry Account is Now Active`,
+            subject: `Payment Successful – Your Product Expiry Reminder Account is Now Active`,
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -136,7 +136,7 @@ export const verifyPayment = async (req, res) => {
                         <li>Update your company profile</li>
                         <li>Invite team members (admins, managers, employees)</li>
                         <li>Add your products and set expiry dates</li>
-                        <li>Start tracking product expiry automatically</li>
+                        <li>Start tracking Product Expiry Reminder automatically</li>
                     </ol>
 
                     <hr style="margin:25px 0;" />
@@ -146,7 +146,7 @@ export const verifyPayment = async (req, res) => {
                     </p>
 
                     <p style="font-size:12px;color:#888;">
-                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                        © ${new Date().getFullYear()} Product Expiry Reminder. All rights reserved.
                     </p>
 
                 </div>

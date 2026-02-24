@@ -9,14 +9,6 @@ import { sendMail } from "../../utils/mailer.utils.js";
 import { generatePassword } from "../../utils/passwordGenerator.utils.js";
 import { isCompanyRestricted } from "./company.controller.js";
 // 1️⃣ PUBLIC REGISTRATION (SELF SIGNUP, EMAIL VERIFIED, PASSWORD EMAILED)
-function generateUserPassword(name) {
-    const symbols = "@!#$";
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    const symbol = symbols[Math.floor(Math.random() * symbols.length)];
-    // Username part: first word, capitalized
-    const base = name.split(" ")[0] || "User";
-    return `${base}${base.slice(0, 2)}${randomNum}${symbol}`;
-}
 
 export const publicRegisterUser = async (req, res) => {
     try {
@@ -47,7 +39,7 @@ export const publicRegisterUser = async (req, res) => {
             return res.status(400).json({ success: false, message: "Email already exists in this company." });
         }
         // Generate password
-        const password = generateUserPassword(name);
+        const password = generatePassword(name);
         // Create user
         const user = await User.create({
             name,
@@ -102,7 +94,7 @@ export const createStaff = async (req, res) => {
         const existing = await User.findOne({ email: email.toLowerCase(), companyId });
         if (existing) return res.status(400).json({ success: false, message: "Email already exists in your company" });
 
-        const password = generateUserPassword(name);
+        const password = generatePassword(name);
 
         const user = await User.create({ name, email: email.toLowerCase(), password, role: role || "manager", companyId, isVerified: true });
 
@@ -297,7 +289,7 @@ const sendOtpEmail = async (user, otp) => {
     try {
         await sendMail({
             to: user.email,
-            subject: "Your OTP for Product Expiry",
+            subject: "Your OTP for Product Expiry Reminder",
             html,
         });
     } catch (err) {
@@ -309,20 +301,69 @@ const sendWelcomeEmail = async (user, password = "") => {
     if (!user?.email) return;
 
     const passwordBlock = password
-        ? `<p>Your temporary password is: <strong>${password}</strong></p>`
+        ? `
+            <h3 style="margin-top:20px;">🔐 Your Login Credentials</h3>
+            <p><strong>Email:</strong> ${user.email}</p>
+            <p><strong>Password:</strong> <span style="font-weight:bold;color:#d32f2f;">${password}</span></p>
+        `
         : "";
 
     const html = `
-    <h2>Welcome to Product Expiry</h2>
-    <p>Hi ${user.name || "User"},</p>
-    <p>Your account has been created successfully 🎉</p>
-    ${passwordBlock}
-  `;
+    <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+        <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+            
+            <h2 style="color:#4CAF50;">
+                🎉 Welcome to Product Expiry Reminder
+            </h2>
+
+            <p>Hi <strong>${user.name || "User"}</strong>,</p>
+
+            <p>
+                Your account has been successfully created on <strong>Product Expiry Reminder</strong>.
+                You're all set to start tracking Product Expiry Reminder dates!
+            </p>
+
+            ${passwordBlock}
+
+            <div style="margin:25px 0;">
+                <a href="https://product-expiry-frontend.vercel.app"
+                   style="background:#4CAF50;color:white;padding:12px 20px;
+                   text-decoration:none;border-radius:5px;display:inline-block;">
+                   Login to Dashboard
+                </a>
+            </div>
+
+            <div style="margin:25px 0;padding:15px;background:#e3f2fd;border-left:4px solid #2196F3;border-radius:4px;">
+                <p style="margin:0;"><strong>💡 Next Steps:</strong></p>
+                <ul style="margin:10px 0;padding-left:20px;">
+                    <li>Change your password after first login for security</li>
+                    <li>Complete your profile information</li>
+                    <li>Start adding products to track</li>
+                </ul>
+            </div>
+
+            <p style="font-size:13px;color:#555;">
+                <strong>Role:</strong> ${user.role || "User"}
+            </p>
+
+            <p>
+                If you have any questions or need assistance, please don't hesitate to contact our support team.
+            </p>
+
+            <hr style="margin:25px 0;" />
+
+            <p style="font-size:12px;color:#888;">
+                © ${new Date().getFullYear()} Product Expiry Reminder. All rights reserved.
+            </p>
+
+        </div>
+    </div>
+    `;
 
     try {
         await sendMail({
             to: user.email,
-            subject: "Welcome to Product Expiry",
+            subject: "Welcome to Product Expiry Reminder – Account Created Successfully",
             html,
         });
     } catch (err) {
@@ -758,20 +799,51 @@ export const forgotPassword = async (req, res, next) => {
 
         // Send OTP email
         const html = `
-            <div style="font-family: Arial, sans-serif; padding: 20px;">
-                <h2>Reset Your Password</h2>
-                <p>Hi ${user.name || "User"},</p>
-                <p>You requested to reset your password. Your OTP is:</p>
-                <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
-                <p>This OTP will expire in ${OTP_EXPIRES_MINUTES} minutes.</p>
-                <p>If you didn't request this, please ignore this email.</p>
-                <p>Thank you,<br/>Product Expiry Team</p>
+        <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+            <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                
+                <h2 style="color:#e67e22;">
+                    Reset Your Password
+                </h2>
+
+                <p>Hi <strong>${user.name || "User"}</strong>,</p>
+
+                <p>
+                    We received a request to reset your password on <strong>Product Expiry Reminder</strong>.
+                </p>
+
+                <div style="text-align:center;margin:25px 0;">
+                    <span style="font-size:28px;letter-spacing:6px;
+                    font-weight:bold;color:#e67e22;">
+                        ${otp}
+                    </span>
+                </div>
+
+                <p>
+                    This OTP will expire in <strong>${OTP_EXPIRES_MINUTES} minutes</strong>.
+                </p>
+
+                <div style="margin:25px 0;padding:15px;background:#fff3cd;border-left:4px solid #ffc107;border-radius:4px;">
+                    <p style="margin:0;"><strong>⚠️ Important:</strong> If you did not request this password reset, please ignore this email.</p>
+                </div>
+
+                <p>
+                    For security reasons, never share your OTP with anyone.
+                </p>
+
+                <hr style="margin:25px 0;" />
+
+                <p style="font-size:12px;color:#888;">
+                    © ${new Date().getFullYear()} Product Expiry Reminder. All rights reserved.
+                </p>
+
             </div>
+        </div>
         `;
 
         await sendMail({
             to: user.email,
-            subject: "Password Reset OTP - Product Expiry",
+            subject: "Password Reset Request – Product Expiry Reminder",
             html,
         });
 
@@ -905,6 +977,52 @@ export const resetPassword = async (req, res, next) => {
         user.resetOtpHash = undefined;
         user.resetOtpExpiry = undefined;
         await user.save();
+
+        // Send confirmation email
+        const confirmHtml = `
+        <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
+            <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
+                
+                <h2 style="color:#4CAF50;">
+                    ✅ Password Updated Successfully
+                </h2>
+
+                <p>Hi <strong>${user.name || "User"}</strong>,</p>
+
+                <p>
+                    Your password on <strong>Product Expiry Reminder</strong>
+                    has been successfully updated.
+                </p>
+
+                <div style="margin:20px 0;">
+                    <a href="https://product-expiry-frontend.vercel.app"
+                       style="background:#4CAF50;color:white;padding:12px 20px;
+                       text-decoration:none;border-radius:5px;display:inline-block;">
+                       Login to Dashboard
+                    </a>
+                </div>
+
+                <p>
+                    If you did not perform this action,
+                    please contact support immediately.
+                </p>
+
+                <hr style="margin:25px 0;" />
+
+                <p style="font-size:12px;color:#888;">
+                    © ${new Date().getFullYear()} Product Expiry Reminder.
+                    All rights reserved.
+                </p>
+
+            </div>
+        </div>
+        `;
+
+        await sendMail({
+            to: user.email,
+            subject: "Password Updated Successfully – Product Expiry Reminder",
+            html: confirmHtml,
+        });
 
         res.status(200).json({
             success: true,

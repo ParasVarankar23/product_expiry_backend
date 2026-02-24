@@ -88,7 +88,7 @@ export const createCompany = async (req, res) => {
 
             await sendMail({
                 to: ownerEmail,
-                subject: `Welcome to Product Expiry – ${companyName} Created Successfully`,
+                subject: `Welcome to Product Expiry Reminder – ${companyName} Created Successfully`,
                 html: `
                 <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                     <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -101,7 +101,7 @@ export const createCompany = async (req, res) => {
 
                         <p>
                             Your company <strong>${companyName}</strong> has been successfully created on 
-                            <strong>Product Expiry</strong>.
+                            <strong>Product Expiry Reminder</strong>.
                         </p>
 
                         <h3 style="margin-top:20px;">📌 Company Details</h3>
@@ -135,7 +135,7 @@ export const createCompany = async (req, res) => {
                         </p>
 
                         <p style="font-size:12px;color:#888;">
-                            © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                            © ${new Date().getFullYear()} Product Expiry Reminder. All rights reserved.
                         </p>
 
                     </div>
@@ -175,7 +175,7 @@ export const createCompany = async (req, res) => {
 
         await sendMail({
             to: ownerEmail,
-            subject: `Welcome to Product Expiry – ${companyName} Created Successfully`,
+            subject: `Welcome to Product Expiry Reminder – ${companyName} Created Successfully`,
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -188,7 +188,7 @@ export const createCompany = async (req, res) => {
 
                     <p>
                         Your company <strong>${companyName}</strong> has been successfully created on 
-                        <strong>Product Expiry</strong>.
+                        <strong>Product Expiry Reminder</strong>.
                     </p>
 
                     <h3 style="margin-top:20px;">📌 Company Details</h3>
@@ -227,7 +227,7 @@ export const createCompany = async (req, res) => {
                     </p>
 
                     <p style="font-size:12px;color:#888;">
-                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                        © ${new Date().getFullYear()} Product Expiry Reminder. All rights reserved.
                     </p>
 
                 </div>
@@ -553,7 +553,7 @@ export const forgotCompanyOwnerPassword = async (req, res) => {
 
         await sendMail({
             to: email,
-            subject: "Password Reset Request – Product Expiry",
+            subject: "Password Reset Request – Product Expiry Reminder",
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -587,7 +587,7 @@ export const forgotCompanyOwnerPassword = async (req, res) => {
                     <hr style="margin:25px 0;" />
 
                     <p style="font-size:12px;color:#888;">
-                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                        © ${new Date().getFullYear()} Product Expiry Reminder. All rights reserved.
                     </p>
 
                 </div>
@@ -665,7 +665,7 @@ export const resetCompanyOwnerPassword = async (req, res) => {
 
         await sendMail({
             to: company.ownerEmail,
-            subject: "Password Updated Successfully – Product Expiry",
+            subject: "Password Updated Successfully – Product Expiry Reminder",
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -697,7 +697,7 @@ export const resetCompanyOwnerPassword = async (req, res) => {
                     <hr style="margin:25px 0;" />
 
                     <p style="font-size:12px;color:#888;">
-                        © ${new Date().getFullYear()} Product Expiry.
+                        © ${new Date().getFullYear()} Product Expiry Reminder.
                         All rights reserved.
                     </p>
 

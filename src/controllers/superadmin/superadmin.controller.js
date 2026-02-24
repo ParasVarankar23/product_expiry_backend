@@ -82,11 +82,11 @@ export const registerSuperAdmin = async (req, res) => {
         // PROFESSIONAL OTP EMAIL
         await sendMail({
             to: email,
-            subject: "Verify Your Email – Product Expiry",
+            subject: "Verify Your Email – Product Expiry Reminder",
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
-                    <h2>Welcome to <span style="color:#4CAF50;">Product Expiry</span></h2>
+                    <h2>Welcome to <span style="color:#4CAF50;">Product Expiry Reminder</span></h2>
                     <p>Hi <strong>${name}</strong>,</p>
                     <p>Please verify your email using the OTP below:</p>
 
@@ -99,7 +99,7 @@ export const registerSuperAdmin = async (req, res) => {
                     <p>This OTP is valid for 10 minutes.</p>
                     <hr/>
                     <p style="font-size:12px;color:#888;">
-                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                        © ${new Date().getFullYear()} Product Expiry Reminder. All rights reserved.
                     </p>
                 </div>
             </div>
@@ -158,7 +158,7 @@ export const verifySuperAdminOtp = async (req, res) => {
         // SEND PROFESSIONAL SUCCESS EMAIL WITH PASSWORD
         await sendMail({
             to: superadmin.email,
-            subject: "Registration Successful – Product Expiry",
+            subject: "Registration Successful – Product Expiry Reminder",
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -186,7 +186,7 @@ export const verifySuperAdminOtp = async (req, res) => {
 
                     <hr/>
                     <p style="font-size:12px;color:#888;">
-                        © ${new Date().getFullYear()} Product Expiry. All rights reserved.
+                        © ${new Date().getFullYear()} Product Expiry Reminder. All rights reserved.
                     </p>
 
                 </div>
@@ -334,7 +334,7 @@ export const forgotSuperAdminPassword = async (req, res) => {
 
         await sendMail({
             to: email,
-            subject: "Password Reset Request – Product Expiry",
+            subject: "Password Reset Request – Product Expiry Reminder",
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -349,7 +349,7 @@ export const forgotSuperAdminPassword = async (req, res) => {
                     <p>This OTP is valid for 10 minutes.</p>
                     <hr/>
                     <p style="font-size:12px;color:#888;">
-                        © ${new Date().getFullYear()} Product Expiry
+                        © ${new Date().getFullYear()} Product Expiry Reminder
                     </p>
                 </div>
             </div>
@@ -417,7 +417,7 @@ export const verifyResetOtp = async (req, res) => {
 
         await sendMail({
             to: superadmin.email,
-            subject: "Password Updated Successfully – Product Expiry",
+            subject: "Password Updated Successfully – Product Expiry Reminder",
             html: `
             <div style="font-family: Arial; padding:30px; background:#f4f6f8;">
                 <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;">
@@ -432,7 +432,7 @@ export const verifyResetOtp = async (req, res) => {
                     </a>
                     <hr/>
                     <p style="font-size:12px;color:#888;">
-                        © ${new Date().getFullYear()} Product Expiry
+                        © ${new Date().getFullYear()} Product Expiry Reminder
                     </p>
                 </div>
             </div>

@@ -27,7 +27,7 @@ export const sendMail = async ({ to, subject, html }) => {
         }
 
         const info = await transporter.sendMail({
-            from: `"Product Expiry" <${process.env.SMTP_EMAIL}>`,
+            from: `"Product Expiry Reminder" <${process.env.SMTP_EMAIL}>`,
             to,
             subject,
             html,
