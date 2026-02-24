@@ -8,7 +8,7 @@ import User from "../../models/users/user.model.js";
 
 export const getAdminDashboard = async (req, res, next) => {
     try {
-        if (req.user.role !== "admin") {
+        if (!(req.user?.role === "admin" || req.isOwner)) {
             return res.status(403).json({
                 success: false,
                 message: "Admin access only",
@@ -62,14 +62,14 @@ export const getAdminDashboard = async (req, res, next) => {
             aiAdvice: { $ne: "" },
         });
 
+        const companyId = req.user?.companyId || req.company?._id;
+
         // Total staff count
-        const totalStaff = await User.countDocuments({
-            companyId: req.user.companyId,
-        });
+        const totalStaff = await User.countDocuments({ companyId });
 
         // Staff by role
         const staffByRole = await User.aggregate([
-            { $match: { companyId: req.user.companyId } },
+            { $match: { companyId } },
             {
                 $group: {
                     _id: "$role",
@@ -79,15 +79,13 @@ export const getAdminDashboard = async (req, res, next) => {
         ]);
 
         // Total orders
-        const totalOrders = await Order.countDocuments({
-            companyId: req.user.companyId,
-        });
+        const totalOrders = await Order.countDocuments({ companyId });
 
         // Products sold (sum of quantities from completed orders)
         const soldStats = await Order.aggregate([
             {
                 $match: {
-                    companyId: req.user.companyId,
+                    companyId,
                     paymentStatus: "completed",
                 },
             },
@@ -106,7 +104,7 @@ export const getAdminDashboard = async (req, res, next) => {
 
         // Total stock remaining
         const stockStats = await Product.aggregate([
-            { $match: { companyId: req.user.companyId } },
+            { $match: { companyId } },
             {
                 $group: {
                     _id: null,
@@ -118,7 +116,7 @@ export const getAdminDashboard = async (req, res, next) => {
         const remainingStock = stockStats.length > 0 ? stockStats[0].totalStock : 0;
 
         // Recent orders
-        const recentOrders = await Order.find({ companyId: req.user.companyId })
+        const recentOrders = await Order.find({ companyId })
             .populate("userId", "name email")
             .sort({ createdAt: -1 })
             .limit(5);
@@ -154,7 +152,7 @@ export const getAdminDashboard = async (req, res, next) => {
 
 export const getStoreManagerDashboard = async (req, res, next) => {
     try {
-        if (req.user.role !== "manager") {
+        if (!(req.user?.role === "manager" || req.isOwner)) {
             return res.status(403).json({
                 success: false,
                 message: "Manager access only",
@@ -166,7 +164,11 @@ export const getStoreManagerDashboard = async (req, res, next) => {
             now.getTime() + 7 * 24 * 60 * 60 * 1000
         );
 
-        const userId = req.user._id;
+        let userId = req.user?._id;
+        if (!userId && req.company) {
+            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
+            if (ownerUser) userId = ownerUser._id;
+        }
 
         // Total products added by manager
         const totalProducts = await Product.countDocuments({
@@ -217,10 +219,10 @@ export const getStoreManagerDashboard = async (req, res, next) => {
             aiAdvice: { $ne: "" },
         });
 
+        const companyId = req.user?.companyId || req.company?._id;
+
         // Total staff count (same company)
-        const totalStaff = await User.countDocuments({
-            companyId: req.user.companyId,
-        });
+        const totalStaff = await User.countDocuments({ companyId });
 
         // Products sold by this manager
         const managerProductIds = await Product.find({ addedBy: userId }).distinct("_id");
@@ -228,7 +230,7 @@ export const getStoreManagerDashboard = async (req, res, next) => {
         const soldStats = await Order.aggregate([
             {
                 $match: {
-                    companyId: req.user.companyId,
+                    companyId,
                     paymentStatus: "completed",
                     "items.productId": { $in: managerProductIds },
                 },
@@ -292,7 +294,7 @@ export const getStoreManagerDashboard = async (req, res, next) => {
 
 export const getUserDashboard = async (req, res, next) => {
     try {
-        if (req.user.role !== "user") {
+        if (req.user?.role !== "user") {
             return res.status(403).json({
                 success: false,
                 message: "User access only",

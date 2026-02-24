@@ -1,3 +1,4 @@
+import companyModel from "../../models/users/company.model.js";
 import Product from "../../models/users/product.model.js";
 import User from "../../models/users/user.model.js";
 import { generateProductAdvice } from "../../services/gemini.service.js";
@@ -96,10 +97,39 @@ export const addProduct = async (req, res, next) => {
         await product.populate("addedBy", "name email phone");
         await product.populate("assignedUsers", "name email phone");
 
-        // Send notifications to assigned users
-        if (assignedUsers && assignedUsers.length > 0) {
-            const users = await User.find({ _id: { $in: assignedUsers } });
-            await sendBatchNotifications(users, product, "new");
+        // Send notifications to assigned users and all users in the company (deduped) including company owner email
+        try {
+            const usersToNotifyMap = new Map();
+
+            if (assignedUsers && assignedUsers.length > 0) {
+                const assigned = await User.find({ _id: { $in: assignedUsers } });
+                assigned.forEach((u) => usersToNotifyMap.set(u._id.toString(), u));
+            }
+
+            // Include all company users and owner email
+            if (product.companyId) {
+                try {
+                    const companyUsers = await User.find({ companyId: product.companyId });
+                    companyUsers.forEach((u) => usersToNotifyMap.set(u._id.toString(), u));
+
+                    const company = await companyModel.findById(product.companyId);
+                    if (company && company.ownerEmail) {
+                        const ownerKey = `owner-${company.ownerEmail}`;
+                        if (!Array.from(usersToNotifyMap.values()).some(u => u.email === company.ownerEmail)) {
+                            usersToNotifyMap.set(ownerKey, { email: company.ownerEmail, name: company.ownerName || 'Company Owner' });
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to load company users for new-product notifications:", e?.message || e);
+                }
+            }
+
+            const usersToNotify = Array.from(usersToNotifyMap.values());
+            if (usersToNotify.length > 0) {
+                await sendBatchNotifications(usersToNotify, product, "new");
+            }
+        } catch (notifyErr) {
+            console.error("Failed to send new-product notifications:", notifyErr?.message || notifyErr);
         }
 
         res.status(201).json({
@@ -128,14 +158,27 @@ export const getProducts = async (req, res, next) => {
         const callerRole = req.user?.role || (req.company ? "admin" : null);
         if (!callerRole) return res.status(401).json({ success: false, message: "Unauthorized" });
 
+        // Resolve current user id (if present)
+        const currentUserId = req.user?._id;
+
         if (callerRole === "admin") {
             // Admin sees all products
         } else if (callerRole === "manager") {
             // Manager sees only their products
-            query.addedBy = req.user._id;
+            if (currentUserId) query.addedBy = currentUserId;
         } else {
-            // Regular user sees only assigned products
-            query.assignedUsers = req.user._id;
+            // Regular user: show products assigned to them OR products belonging to their company
+            if (currentUserId) {
+                // if companyId available on user, include company products too
+                if (req.user.companyId) {
+                    query.$or = [
+                        { assignedUsers: currentUserId },
+                        { companyId: req.user.companyId },
+                    ];
+                } else {
+                    query.assignedUsers = currentUserId;
+                }
+            }
         }
 
         // Additional filters
@@ -394,23 +437,24 @@ export const checkExpiryProducts = async () => {
             // Determine if we should send notification
             let shouldNotify = false;
             let notificationType = "";
+            let notificationFlag = null;
 
-            if (daysRemaining <= 0 && !product.notificationsSent.expired) {
+            if (daysRemaining <= 0 && product.notificationsSent.expired === false) {
                 shouldNotify = true;
                 notificationType = "expired";
-                product.notificationsSent.expired = true;
-            } else if (daysRemaining === 1 && !product.notificationsSent.oneDay) {
+                notificationFlag = "expired";
+            } else if (daysRemaining === 1 && product.notificationsSent.oneDay === false) {
                 shouldNotify = true;
                 notificationType = "oneDay";
-                product.notificationsSent.oneDay = true;
-            } else if (daysRemaining === 2 && !product.notificationsSent.twoDays) {
+                notificationFlag = "oneDay";
+            } else if (daysRemaining === 2 && product.notificationsSent.twoDays === false) {
                 shouldNotify = true;
                 notificationType = "twoDays";
-                product.notificationsSent.twoDays = true;
-            } else if (daysRemaining === 3 && !product.notificationsSent.threeDays) {
+                notificationFlag = "twoDays";
+            } else if (daysRemaining === 3 && product.notificationsSent.threeDays === false) {
                 shouldNotify = true;
                 notificationType = "threeDays";
-                product.notificationsSent.threeDays = true;
+                notificationFlag = "threeDays";
             }
 
             if (shouldNotify) {
@@ -418,7 +462,7 @@ export const checkExpiryProducts = async () => {
 
                 // Regenerate AI advice based on urgency
                 const { generateExpiryWarning } = await import(
-                    "../services/gemini.service.js"
+                    "../../services/gemini.service.js"
                 );
                 product.aiAdvice = await generateExpiryWarning(
                     product.name,
@@ -426,26 +470,44 @@ export const checkExpiryProducts = async () => {
                     daysRemaining
                 );
 
-                // Collect all users to notify
-                const usersToNotify = [];
-
-                if (product.addedBy) {
-                    usersToNotify.push(product.addedBy);
-                }
-
+                // Collect all users to notify (deduped) and include company users + owner email if present
+                const usersMap = new Map();
+                if (product.addedBy) usersMap.set(product.addedBy._id.toString(), product.addedBy);
                 if (product.assignedUsers && product.assignedUsers.length > 0) {
-                    usersToNotify.push(...product.assignedUsers);
+                    product.assignedUsers.forEach((u) => usersMap.set(u._id.toString(), u));
                 }
 
-                // Send notifications
+                if (product.companyId) {
+                    try {
+                        const companyUsers = await User.find({ companyId: product.companyId });
+                        companyUsers.forEach((u) => usersMap.set(u._id.toString(), u));
+
+                        // include company owner email even if owner isn't a User
+                        const company = await companyModel.findById(product.companyId);
+                        if (company && company.ownerEmail) {
+                            const ownerKey = `owner-${company.ownerEmail}`;
+                            if (!Array.from(usersMap.values()).some(u => u.email === company.ownerEmail)) {
+                                usersMap.set(ownerKey, { email: company.ownerEmail, name: company.ownerName || 'Company Owner' });
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Failed to load company users for expiry notifications:", e?.message || e);
+                    }
+                }
+
+                const usersToNotify = Array.from(usersMap.values());
                 if (usersToNotify.length > 0) {
-                    await sendBatchNotifications(
-                        usersToNotify,
-                        product,
-                        "expiry",
-                        daysRemaining
-                    );
-                    notificationsSent++;
+                    try {
+                        await sendBatchNotifications(usersToNotify, product, "expiry", daysRemaining);
+                        // mark flag only after successful send
+                        if (notificationFlag) {
+                            product.notificationsSent[notificationFlag] = true;
+                        }
+                        notificationsSent++;
+                    } catch (e) {
+                        console.error(`Failed to send ${notificationType} notifications for ${product.name}:`, e?.message || e);
+                        // do not set the notificationsSent flag so it can be retried later
+                    }
                 }
             }
 
@@ -461,5 +523,83 @@ export const checkExpiryProducts = async () => {
     } catch (error) {
         console.error("❌ Expiry check failed:", error.message);
         return { success: false, error: error.message };
+    }
+};
+
+/* ======================================================
+   CHECK EXPIRY WITHIN ONE HOUR
+   Sends a 1-hour-before notification (runs hourly)
+====================================================== */
+export const checkExpiryOneHour = async () => {
+    try {
+        console.log("🔍 Running 1-hour expiry check...");
+
+        const now = new Date();
+        const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+
+        // Find products expiring within the next hour and not yet flagged for oneHour
+        const products = await Product.find({
+            expiryDate: { $lte: oneHourFromNow, $gte: now },
+            status: { $in: ["active"] },
+            "notificationsSent.oneHour": false,
+        })
+            .populate("addedBy", "name email phone")
+            .populate("assignedUsers", "name email phone");
+
+        console.log(`📦 Found ${products.length} products expiring within an hour`);
+
+        let notificationsSent = 0;
+
+        for (const product of products) {
+            // Calculate minutes remaining
+            const diffMs = new Date(product.expiryDate).getTime() - now.getTime();
+            const minutesRemaining = Math.ceil(diffMs / (1000 * 60));
+
+            // Regenerate AI advice for urgency
+            try {
+                const { generateExpiryWarning } = await import(
+                    "../../services/gemini.service.js"
+                );
+                product.aiAdvice = await generateExpiryWarning(
+                    product.name,
+                    product.expiryDate,
+                    0
+                );
+            } catch (e) {
+                // ignore
+            }
+
+            // Collect users: addedBy, assignedUsers, and all company users
+            const usersMap = new Map();
+            if (product.addedBy) usersMap.set(product.addedBy._id.toString(), product.addedBy);
+            if (product.assignedUsers && product.assignedUsers.length > 0) {
+                product.assignedUsers.forEach((u) => usersMap.set(u._id.toString(), u));
+            }
+
+            if (product.companyId) {
+                try {
+                    const companyUsers = await User.find({ companyId: product.companyId });
+                    companyUsers.forEach((u) => usersMap.set(u._id.toString(), u));
+                } catch (e) {
+                    console.error("Failed to load company users for 1-hour notifications:", e?.message || e);
+                }
+            }
+
+            const usersToNotify = Array.from(usersMap.values());
+
+            if (usersToNotify.length > 0) {
+                await sendBatchNotifications(usersToNotify, product, "expiry", Math.ceil(minutesRemaining / 1440));
+                notificationsSent++;
+            }
+
+            product.notificationsSent.oneHour = true;
+            await product.save();
+        }
+
+        console.log(`✅ 1-hour expiry check completed. Notifications sent: ${notificationsSent}`);
+        return { success: true, count: products.length, notificationsSent };
+    } catch (error) {
+        console.error("❌ 1-hour expiry check failed:", error?.message || error);
+        return { success: false, error: error?.message };
     }
 };

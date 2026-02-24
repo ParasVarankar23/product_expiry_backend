@@ -7,9 +7,9 @@ import { checkExpiryProducts } from "../controllers/users/product.controller.js"
 ====================================================== */
 
 export const startExpiryJob = () => {
-    // Schedule: "0 9 * * *" = Every day at 9:00 AM
-    // For testing: "*/5 * * * *" = Every 5 minutes
-    const schedule = process.env.EXPIRY_CRON_SCHEDULE || "0 9 * * *";
+    // Schedule: default changed to 15:00 (3:00 PM) server time
+    // Use env `EXPIRY_CRON_SCHEDULE` to override. For testing: "*/5 * * * *" = Every 5 minutes
+    const schedule = process.env.EXPIRY_CRON_SCHEDULE || "30 16 * * *";
 
     cron.schedule(schedule, async () => {
         console.log("⏰ [CRON] Running daily expiry check...");
@@ -26,6 +26,22 @@ export const startExpiryJob = () => {
             }
         } catch (error) {
             console.error("❌ [CRON] Error:", error.message);
+        }
+    });
+
+    // Schedule hourly 1-hour-before notifications
+    const hourlySchedule = process.env.EXPIRY_ONE_HOUR_CRON || "0 * * * *"; // at minute 0 every hour
+    cron.schedule(hourlySchedule, async () => {
+        console.log("⏰ [CRON] Running hourly 1-hour expiry check...");
+        try {
+            const result = await import("../controllers/users/product.controller.js").then(m => m.checkExpiryOneHour());
+            if (result.success) {
+                console.log(`✅ [CRON] 1-hour expiry check completed. Products checked: ${result.count}`);
+            } else {
+                console.error(`❌ [CRON] 1-hour expiry check failed: ${result.error}`);
+            }
+        } catch (error) {
+            console.error("❌ [CRON] Error in 1-hour expiry check:", error.message);
         }
     });
 

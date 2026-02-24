@@ -21,6 +21,7 @@ const productSchema = new mongoose.Schema(
             threeDays: { type: Boolean, default: false },
             twoDays: { type: Boolean, default: false },
             oneDay: { type: Boolean, default: false },
+            oneHour: { type: Boolean, default: false },
             expired: { type: Boolean, default: false },
         },
     },

@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import companyModel from "../../models/users/company.model.js";
 import User from "../../models/users/user.model.js";
@@ -6,6 +7,7 @@ import { uploadBase64File } from "../../utils/cloudinary.utils.js";
 import { formatPhone } from "../../utils/formatPhone.utils.js";
 import { sendMail } from "../../utils/mailer.utils.js";
 import { generatePassword } from "../../utils/passwordGenerator.utils.js";
+import { isCompanyRestricted } from "./company.controller.js";
 // 1️⃣ PUBLIC REGISTRATION (SELF SIGNUP, EMAIL VERIFIED, PASSWORD EMAILED)
 function generateUserPassword(name) {
     const symbols = "@!#$";
@@ -265,7 +267,19 @@ const OTP_EXPIRES_MINUTES = 10;
 
 const generateOtp = () => {
     const max = 10 ** OTP_LENGTH;
-    return String(crypto.randomInt(0, max)).padStart(OTP_LENGTH, "0");
+    try {
+        if (typeof crypto.randomInt === "function") {
+            return String(crypto.randomInt(0, max)).padStart(OTP_LENGTH, "0");
+        }
+    } catch (e) {
+        // ignore and fallback
+    }
+
+    // Fallback: use crypto.randomBytes to generate a secure number
+    const byteLen = 6; // enough entropy
+    const buf = crypto.randomBytes(byteLen);
+    const num = buf.readUIntBE(0, Math.min(byteLen, 6)) % max;
+    return String(num).padStart(OTP_LENGTH, "0");
 };
 
 const getOtpExpiry = () =>
@@ -426,7 +440,8 @@ export const loginUser = async (req, res, next) => {
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
-        if (user.provider === "local" && !user.emailVerified) {
+        // Support both `isVerified` and legacy `emailVerified` fields
+        if (user.provider === "local" && !(user.isVerified || user.emailVerified)) {
             return res.status(403).json({ success: false, message: "Email not verified" });
         }
 

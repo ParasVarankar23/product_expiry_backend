@@ -1,4 +1,6 @@
+import companyModel from "../../models/users/company.model.js";
 import Product from "../../models/users/product.model.js";
+import User from "../../models/users/user.model.js";
 import { getDetectedModel, getGenerativeModelInstance } from "../../services/gemini.service.js";
 import { sendBatchNotifications } from "../../services/notification.service.js";
 import { uploadBase64File } from "../../utils/cloudinary.utils.js";
@@ -79,9 +81,23 @@ Important:
 Return ONLY valid JSON, no additional text.
 `;
 
-        const result = await model.generateContent([prompt, imageData]);
-        const response = await result.response;
-        const text = response.text();
+        let text;
+        try {
+            const result = await model.generateContent([prompt, imageData]);
+            const response = await result.response;
+            text = response.text();
+        } catch (aiErr) {
+            console.error("Image analysis error:", aiErr?.message || aiErr);
+            // Try to extract retry seconds from error message
+            const msg = aiErr?.message || String(aiErr);
+            const retryMatch = msg.match(/retry in (\d+(?:\.\d+)?)s/i) || msg.match(/retryDelay\"\:\"(\d+)s/i);
+            const retrySeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : null;
+            if (retrySeconds) {
+                res.setHeader("Retry-After", String(retrySeconds));
+                return res.status(429).json({ success: false, message: `AI quota exceeded. Please retry after ${retrySeconds} seconds.` });
+            }
+            return res.status(503).json({ success: false, message: "AI image analysis is currently unavailable. Please try again later." });
+        }
 
         // Parse JSON response
         let analysisData;
@@ -162,6 +178,15 @@ export const createProductFromImage = async (req, res, next) => {
         );
         const aiAdvice = await generateProductAdvice(productName, expiryDate);
 
+        // Determine companyId and addedBy (support owner tokens)
+        let companyId = req.user?.companyId || req.company?._id;
+        let addedById = req.user?._id;
+        if (!addedById && req.company) {
+            // Try to find a user record for the company owner
+            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
+            if (ownerUser) addedById = ownerUser._id;
+        }
+
         // Create product
         const product = await Product.create({
             name: productName,
@@ -174,9 +199,9 @@ export const createProductFromImage = async (req, res, next) => {
             stock: stock || 0,
             isAvailableForSale:
                 isAvailableForSale !== undefined ? isAvailableForSale : false,
-            companyId: req.user.companyId,
-            addedBy: req.user._id,
-            assignedUsers: [req.user._id], // Auto-assign to creator
+            companyId,
+            addedBy: addedById,
+            assignedUsers: addedById ? [addedById] : [], // Auto-assign to creator when available
             aiAdvice,
         });
 
@@ -188,15 +213,62 @@ export const createProductFromImage = async (req, res, next) => {
             (expiryDateObj - now) / (1000 * 60 * 60 * 24)
         );
 
-        // If product expires within 3 days, send immediate notification
+        // Send 'new' notifications to assigned users + company users (deduped)
+        try {
+            const usersMap = new Map();
+            if (product.addedBy) usersMap.set(product.addedBy._id.toString(), product.addedBy);
+            if (product.assignedUsers && product.assignedUsers.length > 0) product.assignedUsers.forEach(u => usersMap.set(u._id.toString(), u));
+            if (product.companyId) {
+                const companyUsers = await User.find({ companyId: product.companyId });
+                companyUsers.forEach(u => usersMap.set(u._id.toString(), u));
+                try {
+                    const company = await companyModel.findById(product.companyId);
+                    if (company && company.ownerEmail) {
+                        const ownerKey = `owner-${company.ownerEmail}`;
+                        if (!Array.from(usersMap.values()).some(u => u.email === company.ownerEmail)) {
+                            usersMap.set(ownerKey, { email: company.ownerEmail, name: company.ownerName || 'Company Owner' });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to load company owner for new-product notifications:', e?.message || e);
+                }
+            }
+            const usersToNotify = Array.from(usersMap.values());
+            if (usersToNotify.length > 0) {
+                await sendBatchNotifications(usersToNotify, product, "new");
+            }
+        } catch (e) {
+            console.error("Failed to send new-product notifications:", e?.message || e);
+        }
+
+        // If product expires within 3 days, send immediate expiry notification as well
         if (daysUntilExpiry <= 3 && daysUntilExpiry > 0) {
-            const usersToNotify = [req.user];
-            await sendBatchNotifications(
-                usersToNotify,
-                product,
-                "expiry",
-                daysUntilExpiry
-            );
+            try {
+                const usersMap2 = new Map();
+                if (product.addedBy) usersMap2.set(product.addedBy._id.toString(), product.addedBy);
+                if (product.assignedUsers && product.assignedUsers.length > 0) product.assignedUsers.forEach(u => usersMap2.set(u._id.toString(), u));
+                if (product.companyId) {
+                    const companyUsers = await User.find({ companyId: product.companyId });
+                    companyUsers.forEach(u => usersMap2.set(u._id.toString(), u));
+                    try {
+                        const company = await companyModel.findById(product.companyId);
+                        if (company && company.ownerEmail) {
+                            const ownerKey = `owner-${company.ownerEmail}`;
+                            if (!Array.from(usersMap2.values()).some(u => u.email === company.ownerEmail)) {
+                                usersMap2.set(ownerKey, { email: company.ownerEmail, name: company.ownerName || 'Company Owner' });
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Failed to load company owner for immediate expiry notifications:', e?.message || e);
+                    }
+                }
+                const usersToNotifyExpiry = Array.from(usersMap2.values());
+                if (usersToNotifyExpiry.length > 0) {
+                    await sendBatchNotifications(usersToNotifyExpiry, product, "expiry", daysUntilExpiry);
+                }
+            } catch (e) {
+                console.error("Failed to send immediate expiry notifications:", e?.message || e);
+            }
         }
 
         res.status(201).json({
@@ -280,9 +352,22 @@ Important:
 Return ONLY valid JSON, no additional text.
 `;
 
-        const result = await model.generateContent([prompt, imageData]);
-        const response = await result.response;
-        const text = response.text();
+        let text;
+        try {
+            const result = await model.generateContent([prompt, imageData]);
+            const response = await result.response;
+            text = response.text();
+        } catch (aiErr) {
+            console.error("Image analysis error:", aiErr?.message || aiErr);
+            const msg = aiErr?.message || String(aiErr);
+            const retryMatch = msg.match(/retry in (\d+(?:\.\d+)?)s/i) || msg.match(/retryDelay\"\:\"(\d+)s/i);
+            const retrySeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : null;
+            if (retrySeconds) {
+                res.setHeader("Retry-After", String(retrySeconds));
+                return res.status(429).json({ success: false, message: `AI quota exceeded. Please retry after ${retrySeconds} seconds.`, retryAfter: retrySeconds });
+            }
+            return res.status(503).json({ success: false, message: "AI image analysis is currently unavailable. Please try again later." });
+        }
 
         let analysisData;
         try {
@@ -335,6 +420,14 @@ Return ONLY valid JSON, no additional text.
             analysisData.expiryDate
         );
 
+        // Determine companyId and addedBy (support owner tokens)
+        let companyId = req.user?.companyId || req.company?._id;
+        let addedById = req.user?._id;
+        if (!addedById && req.company) {
+            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
+            if (ownerUser) addedById = ownerUser._id;
+        }
+
         // Create product
         const product = await Product.create({
             name: analysisData.productName,
@@ -347,9 +440,9 @@ Return ONLY valid JSON, no additional text.
             stock: stock || 0,
             isAvailableForSale:
                 isAvailableForSale !== undefined ? isAvailableForSale : false,
-            companyId: req.user.companyId,
-            addedBy: req.user._id,
-            assignedUsers: [req.user._id],
+            companyId,
+            addedBy: addedById,
+            assignedUsers: addedById ? [addedById] : [],
             aiAdvice,
         });
 
@@ -360,15 +453,39 @@ Return ONLY valid JSON, no additional text.
             (expiryDateObj - now) / (1000 * 60 * 60 * 24)
         );
 
-        // Send notification if expiring within 3 days
+        // Send notification if expiring within 3 days — notify creator, assigned users, and company users
         if (daysUntilExpiry <= 3 && daysUntilExpiry > 0) {
-            const usersToNotify = [req.user];
-            await sendBatchNotifications(
-                usersToNotify,
-                product,
-                "expiry",
-                daysUntilExpiry
-            );
+            try {
+                const usersMap = new Map();
+                if (product.addedBy) usersMap.set(product.addedBy._id.toString(), product.addedBy);
+                if (product.assignedUsers && product.assignedUsers.length > 0) product.assignedUsers.forEach(u => usersMap.set(u._id.toString(), u));
+                if (product.companyId) {
+                    const companyUsers = await User.find({ companyId: product.companyId });
+                    companyUsers.forEach(u => usersMap.set(u._id.toString(), u));
+                    try {
+                        const company = await companyModel.findById(product.companyId);
+                        if (company && company.ownerEmail) {
+                            const ownerKey = `owner-${company.ownerEmail}`;
+                            if (!Array.from(usersMap.values()).some(u => u.email === company.ownerEmail)) {
+                                usersMap.set(ownerKey, { email: company.ownerEmail, name: company.ownerName || 'Company Owner' });
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Failed to load company owner for immediate expiry notifications (analyzeAndCreate):', e?.message || e);
+                    }
+                }
+                const usersToNotify = Array.from(usersMap.values());
+                if (usersToNotify.length > 0) {
+                    await sendBatchNotifications(
+                        usersToNotify,
+                        product,
+                        "expiry",
+                        daysUntilExpiry
+                    );
+                }
+            } catch (e) {
+                console.error("Failed to send immediate expiry notifications (analyzeAndCreate):", e?.message || e);
+            }
         }
 
         res.status(201).json({

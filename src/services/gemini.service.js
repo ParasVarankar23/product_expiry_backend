@@ -11,6 +11,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 console.log("Loaded GEMINI_API_KEY:", process.env.GEMINI_API_KEY);
 
 let SELECTED_MODEL = null; // e.g. 'text-bison-001' or 'gemini-1.5-flash'
+let RATE_LIMITED_UNTIL = 0; // timestamp (ms) until which API calls should be skipped due to quota
 
 const modelIdFromName = (name) => (typeof name === "string" ? name.replace(/^models\//, "") : name);
 
@@ -21,6 +22,17 @@ const detectSupportedModel = async () => {
         const res = await fetch(url);
         if (!res.ok) {
             const txt = await res.text();
+            // If rate-limited, try to parse RetryInfo and set cooldown
+            try {
+                const retryMatch = txt.match(/retry in (\d+(?:\.\d+)?)s/i) || txt.match(/retryDelay"?:"?(\d+)s/i);
+                const retrySeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : null;
+                if (retrySeconds) {
+                    RATE_LIMITED_UNTIL = Date.now() + retrySeconds * 1000;
+                    console.warn(`Model list rate-limited — skipping AI calls until ${new Date(RATE_LIMITED_UNTIL).toISOString()}`);
+                }
+            } catch (e) {
+                // fallthrough
+            }
             console.warn("ListModels failed:", res.status, txt);
             return;
         }
@@ -73,6 +85,12 @@ export const generateProductAdvice = async (productName, expiryDate) => {
             return "Please check product safety guidelines and consume before expiry.";
         }
 
+        // Short-circuit if we recently hit a rate-limit
+        if (Date.now() < RATE_LIMITED_UNTIL) {
+            console.warn(`Skipping AI generation until ${new Date(RATE_LIMITED_UNTIL).toISOString()} due to prior rate-limit`);
+            return "Please check product safety guidelines and consume before expiry.";
+        }
+
         // Choose detected model if available
         if (!SELECTED_MODEL) {
             console.warn("No AI model selected; skipping generation and returning fallback advice.");
@@ -106,7 +124,19 @@ Keep it concise and actionable.
 
         return text.trim();
     } catch (error) {
-        console.error("❌ Gemini AI error:", error.message);
+        // If rate-limited, set cooldown to avoid repeated calls
+        try {
+            const msg = error?.message || String(error);
+            const retryMatch = msg.match(/retry in (\d+(?:\.\d+)?)s/i) || msg.match(/retryDelay"?:"?(\d+)s/i);
+            const retrySeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : null;
+            if (retrySeconds) {
+                RATE_LIMITED_UNTIL = Date.now() + retrySeconds * 1000;
+                console.warn(`Gemini rate-limited; skipping further AI calls until ${new Date(RATE_LIMITED_UNTIL).toISOString()}`);
+            }
+        } catch (e) {
+            // ignore
+        }
+        console.warn("❌ Gemini AI error:", error?.message || error);
         return "Please check product quality before consumption and follow standard food safety guidelines.";
     }
 };
@@ -118,6 +148,15 @@ Keep it concise and actionable.
 export const generateExpiryWarning = async (productName, expiryDate, daysRemaining = null) => {
     try {
         if (!process.env.GEMINI_API_KEY) {
+            if (daysRemaining !== null && daysRemaining <= 0) {
+                return `⛔ ${productName} has EXPIRED. Do not consume. Dispose immediately.`;
+            }
+            return `⚠️ ${productName} is expiring soon. Please consume or dispose safely.`;
+        }
+
+        // Short-circuit if rate-limited
+        if (Date.now() < RATE_LIMITED_UNTIL) {
+            console.warn(`Skipping AI expiry warning until ${new Date(RATE_LIMITED_UNTIL).toISOString()} due to prior rate-limit`);
             if (daysRemaining !== null && daysRemaining <= 0) {
                 return `⛔ ${productName} has EXPIRED. Do not consume. Dispose immediately.`;
             }
@@ -162,7 +201,19 @@ Make it ${days <= 0 ? "CRITICAL and direct - tell them to dispose immediately" :
 
         return text.trim();
     } catch (error) {
-        console.error("❌ Gemini AI error:", error.message);
+        // If rate-limited, set cooldown to avoid repeated attempts
+        try {
+            const msg = error?.message || String(error);
+            const retryMatch = msg.match(/retry in (\d+(?:\.\d+)?)s/i) || msg.match(/retryDelay"?:"?(\d+)s/i);
+            const retrySeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : null;
+            if (retrySeconds) {
+                RATE_LIMITED_UNTIL = Date.now() + retrySeconds * 1000;
+                console.warn(`Gemini rate-limited; skipping further AI calls until ${new Date(RATE_LIMITED_UNTIL).toISOString()}`);
+            }
+        } catch (e) {
+            // ignore
+        }
+        console.warn("❌ Gemini AI error:", error?.message || error);
         if (daysRemaining !== null && daysRemaining <= 0) {
             return `⛔ ${productName} has EXPIRED. Do not consume. Dispose immediately.`;
         }

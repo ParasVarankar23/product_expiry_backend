@@ -18,17 +18,26 @@ const createTransporter = () => {
 export const sendMail = async ({ to, subject, html }) => {
     try {
         const transporter = createTransporter(); // create here
+        // verify transporter connection configuration
+        try {
+            await transporter.verify();
+            console.log('SMTP transporter verified');
+        } catch (verifyErr) {
+            console.warn('SMTP transporter verification failed:', verifyErr?.message || verifyErr);
+        }
 
-        await transporter.sendMail({
+        const info = await transporter.sendMail({
             from: `"Product Expiry" <${process.env.SMTP_EMAIL}>`,
             to,
             subject,
             html,
         });
 
-        console.log("✅ Email sent successfully");
+        console.log("✅ Email sent successfully", info?.messageId || '');
     } catch (error) {
-        console.error("Mail error:", error.message);
+        // Log full error for clearer diagnosis
+        console.error("Mail error:", error.message || error);
+        if (error.response) console.error('SMTP response:', error.response);
         throw error;
     }
 };

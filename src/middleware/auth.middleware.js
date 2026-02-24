@@ -138,7 +138,7 @@ export const protect = async (req, res, next) => {
 /* ===== ROLE PROTECTION ===== */
 
 export const protectUser = (req, res, next) => {
-    if (req.user.role !== "user") {
+    if (!req.user || req.user.role !== "user") {
         return res.status(403).json({
             success: false,
             message: "User access only",
@@ -148,7 +148,8 @@ export const protectUser = (req, res, next) => {
 };
 
 export const protectAdmin = (req, res, next) => {
-    if (req.user.role !== "admin") {
+    // Allow either an admin user or a company owner token
+    if (!(req.user?.role === "admin" || req.isOwner)) {
         return res.status(403).json({
             success: false,
             message: "Admin access only",
@@ -158,7 +159,8 @@ export const protectAdmin = (req, res, next) => {
 };
 
 export const protectStoreManager = (req, res, next) => {
-    if (req.user.role !== "store_manager") {
+    // Allow either a store manager user or a company owner token
+    if (!(req.user?.role === "store_manager" || req.isOwner)) {
         return res.status(403).json({
             success: false,
             message: "Store Manager access only",

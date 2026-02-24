@@ -3,6 +3,7 @@ import { getRazorpayClient } from "../../config/razorpay.js";
 import Cart from "../../models/users/cart.model.js";
 import Order from "../../models/users/order.model.js";
 import Product from "../../models/users/product.model.js";
+import User from "../../models/users/user.model.js";
 
 /* ======================================================
    CREATE ORDER (RAZORPAY)
@@ -59,6 +60,14 @@ export const createOrder = async (req, res, next) => {
             });
         }
 
+        // Determine companyId and userId (support owner tokens)
+        let companyId = req.user?.companyId || req.company?._id;
+        let userId = req.user?._id;
+        if (!userId && req.company) {
+            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
+            if (ownerUser) userId = ownerUser._id;
+        }
+
         // Create Razorpay order
         const razorpay = getRazorpayClient();
         const razorpayOrder = await razorpay.orders.create({
@@ -66,8 +75,8 @@ export const createOrder = async (req, res, next) => {
             currency: "INR",
             receipt: `order_${Date.now()}`,
             notes: {
-                userId: req.user._id.toString(),
-                companyId: req.user.companyId.toString(),
+                userId: userId ? userId.toString() : "",
+                companyId: companyId ? companyId.toString() : "",
             },
         });
 
@@ -77,8 +86,8 @@ export const createOrder = async (req, res, next) => {
         // Create order in database
         const order = await Order.create({
             orderNumber,
-            userId: req.user._id,
-            companyId: req.user.companyId,
+            userId: userId,
+            companyId: companyId,
             items: orderItems,
             totalAmount,
             razorpayOrderId: razorpayOrder.id,
@@ -192,7 +201,13 @@ export const getUserOrders = async (req, res, next) => {
     try {
         const { status, page = 1, limit = 10 } = req.query;
 
-        const query = { userId: req.user._id };
+        // Resolve requester user id (support owner tokens)
+        let requesterUserId = req.user?._id;
+        if (!requesterUserId && req.company) {
+            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
+            if (ownerUser) requesterUserId = ownerUser._id;
+        }
+        const query = { userId: requesterUserId };
         if (status) query.status = status;
 
         const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -240,10 +255,20 @@ export const getOrderById = async (req, res, next) => {
             });
         }
 
-        // Check access
+        // Check access (support owner tokens)
+        let requesterUserId = req.user?._id?.toString();
+        if (!requesterUserId && req.company) {
+            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
+            if (ownerUser) requesterUserId = ownerUser._id.toString();
+        }
+
+        const isAdmin = req.user?.role === "admin";
+        const isCompanyOwner = req.isOwner && req.company && order.companyId.toString() === req.company._id.toString();
+
         if (
-            order.userId._id.toString() !== req.user._id.toString() &&
-            req.user.role !== "admin"
+            order.userId._id.toString() !== requesterUserId &&
+            !isAdmin &&
+            !isCompanyOwner
         ) {
             return res.status(403).json({
                 success: false,
@@ -267,7 +292,7 @@ export const getOrderById = async (req, res, next) => {
 
 export const getAllOrders = async (req, res, next) => {
     try {
-        if (req.user.role !== "admin" && req.user.role !== "manager") {
+        if (req.user?.role !== "admin" && req.user?.role !== "manager" && !req.isOwner) {
             return res.status(403).json({
                 success: false,
                 message: "Access denied",
@@ -276,7 +301,8 @@ export const getAllOrders = async (req, res, next) => {
 
         const { status, page = 1, limit = 20 } = req.query;
 
-        const query = { companyId: req.user.companyId };
+        const companyIdQuery = req.user?.companyId || req.company?._id;
+        const query = { companyId: companyIdQuery };
         if (status) query.status = status;
 
         const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -312,7 +338,7 @@ export const getAllOrders = async (req, res, next) => {
 
 export const updateOrderStatus = async (req, res, next) => {
     try {
-        if (req.user.role !== "admin" && req.user.role !== "manager") {
+        if ((req.user?.role !== "admin" && req.user?.role !== "manager") && !req.isOwner) {
             return res.status(403).json({
                 success: false,
                 message: "Access denied",
