@@ -20,6 +20,9 @@ export const getAdminDashboard = async (req, res, next) => {
             now.getTime() + 7 * 24 * 60 * 60 * 1000
         );
 
+        // Get year from query or use current year
+        const year = parseInt(req.query.year) || new Date().getFullYear();
+
         // Total products
         const totalProducts = await Product.countDocuments();
 
