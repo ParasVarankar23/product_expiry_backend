@@ -698,9 +698,19 @@ const verifyGoogleCode = async (code) => {
             }),
         });
 
-        if (!response.ok) return null;
+        if (!response.ok) {
+            // Helpful debug output during development to understand 401/400 responses
+            const txt = await response.text().catch(() => "<no-body>");
+            console.error("Google token endpoint error:", response.status, txt);
+            return null;
+        }
 
         const tokenData = await response.json();
+        // Log token response in non-production for debugging token-exchange issues
+        if (process.env.NODE_ENV !== "production") {
+            console.debug("Google token response:", tokenData);
+        }
+
         const accessToken = tokenData.access_token;
 
         // Get user info using access token

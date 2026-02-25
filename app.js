@@ -57,7 +57,12 @@ app.use(
 // Allow cross-origin window access for OAuth popups
 app.use((req, res, next) => {
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
-    res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+    // Only enable Cross-Origin-Embedder-Policy when explicitly requested via env.
+    // COEP (`require-corp`) can cause cross-origin resource restrictions and
+    // may trigger repeated popup/window.closed warnings in some OAuth flows.
+    if (process.env.ENABLE_COEP === "true") {
+        res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+    }
     next();
 });
 
