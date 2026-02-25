@@ -232,8 +232,9 @@ export const directLoginUser = async (req, res) => {
 ====================================================== */
 
 const generateAccessToken = (user) => {
+    // Only include the user id in the token payload. Role will be fetched from DB on protected routes.
     return jwt.sign(
-        { id: user._id, role: user.role },
+        { id: user._id },
         process.env.JWT_SECRET,
         { expiresIn: "60m" }
     );
@@ -241,7 +242,7 @@ const generateAccessToken = (user) => {
 
 const generateRefreshToken = (user) => {
     return jwt.sign(
-        { id: user._id, role: user.role },
+        { id: user._id },
         process.env.JWT_REFRESH_SECRET,
         { expiresIn: "7d" }
     );

@@ -5,7 +5,8 @@ const cartSchema = new mongoose.Schema(
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-            required: true,
+            // Owner is stored only on Company model; userId is optional to allow company-owned carts
+            required: false,
         },
         items: [
             {

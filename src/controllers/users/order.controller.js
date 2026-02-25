@@ -1,9 +1,11 @@
 import crypto from "crypto";
 import { getRazorpayClient } from "../../config/razorpay.js";
 import Cart from "../../models/users/cart.model.js";
+import companyModel from "../../models/users/company.model.js";
 import Order from "../../models/users/order.model.js";
 import Product from "../../models/users/product.model.js";
 import User from "../../models/users/user.model.js";
+import { sendBatchNotifications } from "../../services/notification.service.js";
 
 /* ======================================================
    CREATE ORDER (RAZORPAY)
@@ -97,8 +99,97 @@ export const createOrder = async (req, res, next) => {
             status: "pending",
         });
 
-        await order.populate("items.productId", "name image expiryDate");
-        await order.populate("userId", "name email phone");
+        // Ensure we have fresh product details (expiryDate, stock) and user info
+        await order.populate("items.productId", "name image expiryDate stock companyId addedBy");
+        await order.populate("userId", "name email phone companyId");
+
+        // Resolve ordering user by userId (populate may or may not include email/phone)
+        let orderingUser = null;
+        try {
+            if (order.userId && order.userId._id) {
+                // already populated
+                orderingUser = order.userId;
+            } else if (order.userId) {
+                orderingUser = await User.findById(order.userId).select("name email phone companyId");
+            }
+
+            // Notify ordering user via email/whatsapp (order confirmation)
+            if (orderingUser && (orderingUser.email || orderingUser.phone)) {
+                await sendBatchNotifications([orderingUser], order, "order");
+            }
+        } catch (notifyErr) {
+            console.error("Failed to send order notification:", notifyErr?.message || notifyErr);
+        }
+
+        // For each ordered item, if product is expiring within 3 days (or expired) AND there is stock,
+        // notify the ordering user + company admins/managers + company owner about the expiry.
+        try {
+            const now = new Date();
+            const msPerDay = 1000 * 60 * 60 * 24;
+
+            for (const item of order.items) {
+                const product = item.productId;
+                if (!product) continue;
+
+                // If no expiryDate or no stock, skip
+                if (!product.expiryDate) continue;
+                if (!product.stock || product.stock <= 0) continue;
+
+                const expiryDate = new Date(product.expiryDate);
+                const utcExpiryMidnight = Date.UTC(expiryDate.getUTCFullYear(), expiryDate.getUTCMonth(), expiryDate.getUTCDate());
+                const utcNowMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+                const daysRemaining = Math.round((utcExpiryMidnight - utcNowMidnight) / msPerDay);
+
+                // Only notify if within 3 days or already expired
+                if (daysRemaining > 3) continue;
+
+                // Build list: ordering user, admins/managers in company, and company owner (by email)
+                const usersMap = new Map();
+
+                // ordering user (resolve to full user doc if available)
+                if (orderingUser) {
+                    usersMap.set(orderingUser._id ? orderingUser._id.toString() : `u-${orderingUser.email}`, orderingUser);
+                } else if (order.userId) {
+                    // fallback: try to fetch minimal user record
+                    try {
+                        const tmpUser = await User.findById(order.userId).select("name email phone companyId");
+                        if (tmpUser) usersMap.set(tmpUser._id.toString(), tmpUser);
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+
+                // company id - prefer product.companyId then order.companyId then ordering user's companyId
+                const companyId = product.companyId || order.companyId || (order.userId && order.userId.companyId);
+                if (companyId) {
+                    try {
+                        const companyUsers = await User.find({ companyId, role: { $in: ["admin", "manager"] } });
+                        companyUsers.forEach(u => usersMap.set(u._id.toString(), u));
+
+                        const company = await companyModel.findById(companyId);
+                        if (company && company.ownerEmail) {
+                            const ownerKey = `owner-${company.ownerEmail}`;
+                            if (!Array.from(usersMap.values()).some(u => u.email === company.ownerEmail)) {
+                                usersMap.set(ownerKey, { email: company.ownerEmail, name: company.ownerName || 'Company Owner' });
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Failed to load company users for order-expiry notifications:", e?.message || e);
+                    }
+                }
+
+                const usersToNotify = Array.from(usersMap.values());
+                if (usersToNotify.length > 0) {
+                    try {
+                        await sendBatchNotifications(usersToNotify, product, "expiry", daysRemaining);
+                    } catch (e) {
+                        console.error(`Failed order-expiry notifications for product ${product.name}:`, e?.message || e);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("Error while processing order-expiry notifications:", err?.message || err);
+        }
 
         res.status(201).json({
             success: true,

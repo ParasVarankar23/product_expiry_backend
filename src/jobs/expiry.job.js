@@ -9,7 +9,7 @@ import { checkExpiryProducts } from "../controllers/users/product.controller.js"
 export const startExpiryJob = () => {
     // Schedule: default changed to 15:00 (3:00 PM) server time
     // Use env `EXPIRY_CRON_SCHEDULE` to override. For testing: "*/5 * * * *" = Every 5 minutes
-    const schedule = process.env.EXPIRY_CRON_SCHEDULE || "30 16 * * *";
+    const schedule = process.env.EXPIRY_CRON_SCHEDULE || "54 16 * * *";
 
     cron.schedule(schedule, async () => {
         console.log("⏰ [CRON] Running daily expiry check...");

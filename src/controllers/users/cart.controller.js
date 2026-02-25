@@ -41,31 +41,21 @@ export const addToCart = async (req, res, next) => {
         }
 
         // Resolve userId and companyId (support owner tokens)
+        // NOTE: we no longer create a `User` document for company owners. Owner details live in Company model only.
         let userId = req.user?._id;
         let companyId = req.user?.companyId || req.company?._id;
-        if (!userId && req.company) {
-            // Try to find or create a lightweight owner user for company owner
-            let ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
-            if (!ownerUser) {
-                const tmpPassword = `owner-${Date.now()}`;
-                ownerUser = await User.create({
-                    name: req.company.ownerName || "Company Owner",
-                    email: req.company.ownerEmail,
-                    password: tmpPassword,
-                    role: "admin",
-                    companyId: req.company._id,
-                    isVerified: true,
-                });
-            }
-            userId = ownerUser._id;
-        }
 
-        // Find or create cart
-        let cart = await Cart.findOne({ userId });
+        // Find or create cart. If userId is present, prefer user cart; otherwise use a company-level cart (userId=null)
+        let cart;
+        if (userId) {
+            cart = await Cart.findOne({ userId });
+        } else {
+            cart = await Cart.findOne({ companyId, userId: null });
+        }
 
         if (!cart) {
             cart = await Cart.create({
-                userId,
+                userId: userId || null,
                 companyId,
                 items: [],
             });
@@ -111,19 +101,23 @@ export const getCart = async (req, res, next) => {
         // Resolve userId and companyId (support owner tokens)
         let userId = req.user?._id;
         let companyId = req.user?.companyId || req.company?._id;
-        if (!userId && req.company) {
-            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
-            if (ownerUser) userId = ownerUser._id;
-        }
 
-        let cart = await Cart.findOne({ userId }).populate(
-            "items.productId",
-            "name description image price stock expiryDate status isAvailableForSale"
-        );
+        let cart;
+        if (userId) {
+            cart = await Cart.findOne({ userId }).populate(
+                "items.productId",
+                "name description image price stock expiryDate status isAvailableForSale"
+            );
+        } else {
+            cart = await Cart.findOne({ companyId, userId: null }).populate(
+                "items.productId",
+                "name description image price stock expiryDate status isAvailableForSale"
+            );
+        }
 
         if (!cart) {
             cart = await Cart.create({
-                userId,
+                userId: userId || null,
                 companyId,
                 items: [],
             });
@@ -174,12 +168,14 @@ export const updateCartItem = async (req, res, next) => {
 
         // Resolve userId (support owner tokens)
         let userId = req.user?._id;
-        if (!userId && req.company) {
-            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
-            if (ownerUser) userId = ownerUser._id;
-        }
+        let companyId = req.user?.companyId || req.company?._id;
 
-        const cart = await Cart.findOne({ userId });
+        let cart;
+        if (userId) {
+            cart = await Cart.findOne({ userId });
+        } else {
+            cart = await Cart.findOne({ companyId, userId: null });
+        }
 
         if (!cart) {
             return res.status(404).json({
@@ -238,12 +234,14 @@ export const removeFromCart = async (req, res, next) => {
 
         // Resolve userId (support owner tokens)
         let userId = req.user?._id;
-        if (!userId && req.company) {
-            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
-            if (ownerUser) userId = ownerUser._id;
-        }
+        let companyId = req.user?.companyId || req.company?._id;
 
-        const cart = await Cart.findOne({ userId });
+        let cart;
+        if (userId) {
+            cart = await Cart.findOne({ userId });
+        } else {
+            cart = await Cart.findOne({ companyId, userId: null });
+        }
 
         if (!cart) {
             return res.status(404).json({

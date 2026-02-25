@@ -8,7 +8,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 ====================================================== */
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-console.log("Loaded GEMINI_API_KEY:", process.env.GEMINI_API_KEY);
+// console.log("Loaded GEMINI_API_KEY:", process.env.GEMINI_API_KEY);
 
 let SELECTED_MODEL = null; // e.g. 'text-bison-001' or 'gemini-1.5-flash'
 let RATE_LIMITED_UNTIL = 0; // timestamp (ms) until which API calls should be skipped due to quota

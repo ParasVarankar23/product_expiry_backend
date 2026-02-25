@@ -1,43 +1,49 @@
-import nodemailer from "nodemailer";
+// import nodemailer from "nodemailer";
 
-/* ================= CREATE TRANSPORTER ================= */
-const createTransporter = () => {
-    return nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-            user: process.env.SMTP_EMAIL,
-            pass: process.env.SMTP_PASS,
-        },
-        tls: {
-            rejectUnauthorized: false,
-        },
-    });
-};
+// /* ================= CREATE TRANSPORTER ================= */
+// const createTransporter = () => {
+//     return nodemailer.createTransport({
+//         host: "smtp.gmail.com",
+//         port: 587,          // 🔥 use 587 instead of 465
+//         secure: false,      // false for 587
+//         requireTLS: true,
+//         auth: {
+//             user: process.env.SMTP_EMAIL,
+//             pass: process.env.SMTP_PASS,
+//         },
+//     });
+// }
 
-/* ================= SEND MAIL ================= */
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 export const sendMail = async ({ to, subject, html }) => {
-    try {
-        const transporter = createTransporter(); // create here
-        // verify transporter connection configuration
-        try {
-            await transporter.verify();
-            console.log('SMTP transporter verified');
-        } catch (verifyErr) {
-            console.warn('SMTP transporter verification failed:', verifyErr?.message || verifyErr);
-        }
+    if (!process.env.RESEND_API_KEY) {
+        const msg = "RESEND_API_KEY is not set in environment variables.";
+        console.error("❌ Email error:", msg);
+        throw new Error(msg);
+    }
 
-        const info = await transporter.sendMail({
-            from: `"Product Expiry Reminder" <${process.env.SMTP_EMAIL}>`,
+    try {
+        const data = await resend.emails.send({
+            from: "Product Expiry <onboarding@resend.dev>",
             to,
             subject,
             html,
         });
 
-        console.log("✅ Email sent successfully", info?.messageId || '');
+        // Log the response for debugging (don't log twice; sendEmailNotification will log the final result)
+        console.log(`   📬 Resend API response:`, {
+            id: data.id || 'no-id',
+            from: data.from || 'no-from',
+            to: to,
+            status: 'sent'
+        });
+        return data;
     } catch (error) {
-        // Log full error for clearer diagnosis
-        console.error("Mail error:", error.message || error);
-        if (error.response) console.error('SMTP response:', error.response);
+        console.error("❌ Email error:", error?.message || error);
+        // rethrow so callers can react to failures
         throw error;
     }
 };

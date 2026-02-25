@@ -7,6 +7,8 @@ import {
     loginCompanyOwner,
     resetCompanyOwnerPassword,
     updateCompanyOwnerProfile,
+    googleLoginCompany,
+    completeGoogleRegistrationCompany,
 } from "../../controllers/users/company.controller.js";
 
 import { protect, protectCompanyOwner } from "../../middleware/auth.middleware.js";
@@ -18,6 +20,9 @@ const router = express.Router();
 ============================= */
 
 router.post("/login", loginCompanyOwner);
+// Google login for company owners / company users
+router.post("/google", googleLoginCompany);
+router.post("/google/complete", completeGoogleRegistrationCompany);
 router.post("/forgot-password", forgotCompanyOwnerPassword);
 router.post("/reset-password", resetCompanyOwnerPassword);
 

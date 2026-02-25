@@ -180,12 +180,8 @@ export const createProductFromImage = async (req, res, next) => {
 
         // Determine companyId and addedBy (support owner tokens)
         let companyId = req.user?.companyId || req.company?._id;
-        let addedById = req.user?._id;
-        if (!addedById && req.company) {
-            // Try to find a user record for the company owner
-            const ownerUser = await User.findOne({ email: req.company.ownerEmail, companyId: req.company._id });
-            if (ownerUser) addedById = ownerUser._id;
-        }
+        // Do not create or rely on a User document for company owner. If request is from a logged-in user use their id, otherwise leave null.
+        let addedById = req.user?._id || null;
 
         // Create product
         const product = await Product.create({

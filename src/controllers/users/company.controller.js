@@ -20,10 +20,218 @@ const PLAN_USER_LIMITS = {
 };
 
 const generateAccessToken = (user) =>
-    jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "60m" });
+    // For regular users created under a company, include only id in token.
+    jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "60m" });
 
 const generateRefreshToken = (user) =>
-    jwt.sign({ id: user._id, role: user.role }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
+    jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
+
+/* ======================================================
+   GOOGLE LOGIN (COMPANY/OWNER + COMPANY USERS)
+   Behavior: If Google email matches a company owner -> login as owner.
+             Otherwise behave like user google login: if existing user with company -> direct login,
+             else request company code to complete registration.
+====================================================== */
+
+const verifyGoogleCode = async (code) => {
+    try {
+        const response = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                code,
+                client_id: process.env.GOOGLE_CLIENT_ID,
+                client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
+                redirect_uri: "postmessage",
+                grant_type: "authorization_code",
+            }),
+        });
+
+        if (!response.ok) {
+            const txt = await response.text().catch(() => "<no-body>");
+            console.error("Google token endpoint error:", response.status, txt);
+            return null;
+        }
+
+        const tokenData = await response.json();
+        const accessToken = tokenData.access_token;
+
+        const userResponse = await fetch(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            }
+        );
+
+        if (!userResponse.ok) return null;
+
+        const payload = await userResponse.json();
+        return payload;
+    } catch (error) {
+        console.error("Code verification error:", error);
+        return null;
+    }
+};
+
+export const googleLoginCompany = async (req, res, next) => {
+    try {
+        const { code } = req.body;
+
+        if (!code) {
+            return res.status(400).json({ success: false, message: "Authorization code required" });
+        }
+
+        const payload = await verifyGoogleCode(code);
+
+        if (!payload?.email) {
+            return res.status(401).json({ success: false, message: "Invalid Google code" });
+        }
+
+        const email = payload.email.toLowerCase();
+
+        // 1) If this email matches a company owner -> owner login
+        const ownerCompany = await companyModel.findOne({ ownerEmail: email });
+        if (ownerCompany) {
+            const accessToken = jwt.sign({ id: ownerCompany._id, type: "owner" }, process.env.JWT_SECRET, { expiresIn: "60m" });
+            const refreshToken = jwt.sign({ id: ownerCompany._id, type: "owner" }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
+
+            return res.status(200).json({
+                success: true,
+                owner: {
+                    id: ownerCompany._id,
+                    name: ownerCompany.ownerName,
+                    email: ownerCompany.ownerEmail,
+                    role: ownerCompany.ownerRole,
+                },
+                company: {
+                    id: ownerCompany._id,
+                    companyName: ownerCompany.companyName,
+                    companyCode: ownerCompany.companyCode,
+                    plan: ownerCompany.plan,
+                    planStatus: ownerCompany.planStatus,
+                    isActive: ownerCompany.isActive,
+                },
+                accessToken,
+                refreshToken,
+            });
+        }
+
+        // 2) Fallback to user behavior (users under companies)
+        let user = await User.findOne({ email });
+
+        // EXISTING USER WITH COMPANY -> direct login
+        if (user && user.companyId) {
+            if (!user.isVerified) {
+                user.isVerified = true;
+                await user.save();
+            }
+
+            const restrictionCheck = await isCompanyRestricted(user.companyId);
+            if (restrictionCheck.restricted) {
+                return res.status(403).json({ success: false, message: restrictionCheck.reason || "Your company access is restricted" });
+            }
+
+            return res.status(200).json({
+                success: true,
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    companyId: user.companyId,
+                },
+                accessToken: generateAccessToken(user),
+                refreshToken: generateRefreshToken(user),
+            });
+        }
+
+        // NEW USER - ask for company code
+        if (!user) {
+            return res.status(200).json({
+                success: false,
+                companyCodeRequired: true,
+                googleData: {
+                    email,
+                    name: payload.name || "Google User",
+                    picture: payload.picture || "",
+                },
+                message: "Please enter your company code to continue",
+            });
+        }
+
+        // EXISTING USER WITHOUT COMPANY - ask for company code
+        return res.status(200).json({
+            success: false,
+            companyCodeRequired: true,
+            userId: user._id,
+            googleData: {
+                email,
+                name: user.name,
+                picture: user.avatar || "",
+            },
+            message: "Please enter your company code to continue",
+        });
+    } catch (error) {
+        console.error("company googleLogin error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Internal server error" });
+    }
+};
+
+export const completeGoogleRegistrationCompany = async (req, res, next) => {
+    try {
+        const { email, name, companyCode } = req.body;
+
+        if (!email || !companyCode) {
+            return res.status(400).json({ success: false, message: "Email and company code required" });
+        }
+
+        // Find company by code
+        const company = await companyModel.findOne({ companyCode: companyCode.toUpperCase(), isActive: true });
+
+        if (!company) {
+            return res.status(404).json({ success: false, message: "Invalid or inactive company code" });
+        }
+
+        if (company.planStatus !== "active") {
+            return res.status(403).json({ success: false, message: "Company plan is not active. Contact your admin." });
+        }
+
+        let user = await User.findOne({ email: email.toLowerCase() });
+
+        if (!user) {
+            user = await User.create({
+                name: name || "Google User",
+                email: email.toLowerCase(),
+                provider: "google",
+                isVerified: true,
+                companyId: company._id,
+                role: "user",
+            });
+        } else if (!user.companyId) {
+            user.companyId = company._id;
+            user.provider = "google";
+            user.isVerified = true;
+            await user.save();
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Login Successful! 🚀",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                companyId: user.companyId,
+            },
+            accessToken: generateAccessToken(user),
+            refreshToken: generateRefreshToken(user),
+        });
+    } catch (error) {
+        console.error("completeGoogleRegistrationCompany error:", error?.message || error);
+        return res.status(500).json({ success: false, message: error?.message || "Failed to complete registration" });
+    }
+};
 
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 

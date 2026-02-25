@@ -1,4 +1,5 @@
 import companyModel from "../../models/users/company.model.js";
+import Order from "../../models/users/order.model.js";
 import Product from "../../models/users/product.model.js";
 import User from "../../models/users/user.model.js";
 import { generateProductAdvice } from "../../services/gemini.service.js";
@@ -390,6 +391,7 @@ export const checkExpiryProducts = async () => {
         console.log("🔍 Running expiry check...");
 
         const now = new Date();
+        // Normalize to start of day (local) to make day math deterministic
         now.setHours(0, 0, 0, 0); // Start of today
 
         const threeDaysFromNow = new Date(now);
@@ -417,12 +419,23 @@ export const checkExpiryProducts = async () => {
         let notificationsSent = 0;
 
         for (const product of expiringProducts) {
-            const expiryDate = new Date(product.expiryDate);
-            expiryDate.setHours(0, 0, 0, 0);
+            // Ensure the notificationsSent object exists (older documents may not have it)
+            if (!product.notificationsSent || typeof product.notificationsSent !== "object") {
+                product.notificationsSent = {
+                    threeDays: false,
+                    twoDays: false,
+                    oneDay: false,
+                    oneHour: false,
+                    expired: false,
+                };
+            }
 
-            // Calculate days remaining
-            const diffTime = expiryDate.getTime() - now.getTime();
-            const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            // Compute days remaining using UTC-day arithmetic to avoid timezone shifts
+            const expiryDate = new Date(product.expiryDate);
+            const msPerDay = 1000 * 60 * 60 * 24;
+            const utcExpiryMidnight = Date.UTC(expiryDate.getUTCFullYear(), expiryDate.getUTCMonth(), expiryDate.getUTCDate());
+            const utcNowMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+            const daysRemaining = Math.round((utcExpiryMidnight - utcNowMidnight) / msPerDay);
 
             console.log(`📅 Product: ${product.name}, Days remaining: ${daysRemaining}`);
 
@@ -490,6 +503,17 @@ export const checkExpiryProducts = async () => {
                                 usersMap.set(ownerKey, { email: company.ownerEmail, name: company.ownerName || 'Company Owner' });
                             }
                         }
+                        // Also include users who have ordered this product
+                        try {
+                            const orders = await Order.find({ 'items.productId': product._id }).select('userId');
+                            const orderingUserIds = Array.from(new Set(orders.map(o => o.userId && o.userId.toString()).filter(Boolean)));
+                            if (orderingUserIds.length > 0) {
+                                const orderingUsers = await User.find({ _id: { $in: orderingUserIds } });
+                                orderingUsers.forEach((u) => usersMap.set(u._id.toString(), u));
+                            }
+                        } catch (ordErr) {
+                            console.error("Failed to load ordering users for expiry notifications:", ordErr?.message || ordErr);
+                        }
                     } catch (e) {
                         console.error("Failed to load company users for expiry notifications:", e?.message || e);
                     }
@@ -498,16 +522,34 @@ export const checkExpiryProducts = async () => {
                 const usersToNotify = Array.from(usersMap.values());
                 if (usersToNotify.length > 0) {
                     try {
-                        await sendBatchNotifications(usersToNotify, product, "expiry", daysRemaining);
-                        // mark flag only after successful send
-                        if (notificationFlag) {
-                            product.notificationsSent[notificationFlag] = true;
+                        // Debug: list recipients
+                        console.log(`👥 Recipients for ${product.name} (${notificationType}): ${usersToNotify.length}`);
+                        usersToNotify.forEach(u => console.log(`   - ${u.email || u.phone || '(no contact)'} ${u.name ? `(${u.name})` : ''}`));
+
+                        const result = await sendBatchNotifications(usersToNotify, product, "expiry", daysRemaining);
+
+                        // Debug: log full result object for investigation
+                        console.log(`🔎 Batch result for ${product.name}:`, JSON.stringify(result));
+
+                        // mark flag only if at least one message was delivered (email or whatsapp)
+                        const deliveredEmails = result?.email?.sent || 0;
+                        const deliveredWhatsapps = result?.whatsapp?.sent || 0;
+                        const delivered = deliveredEmails + deliveredWhatsapps;
+
+                        if (delivered > 0) {
+                            if (notificationFlag) {
+                                product.notificationsSent[notificationFlag] = true;
+                            }
+                            notificationsSent++;
+                        } else {
+                            console.warn(`No deliveries recorded for ${product.name} (${notificationType}); will retry later.`);
                         }
-                        notificationsSent++;
                     } catch (e) {
                         console.error(`Failed to send ${notificationType} notifications for ${product.name}:`, e?.message || e);
                         // do not set the notificationsSent flag so it can be retried later
                     }
+                } else {
+                    console.log(`ℹ️ No recipients found for ${product.name} (${notificationType}).`);
                 }
             }
 
