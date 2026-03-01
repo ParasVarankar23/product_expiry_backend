@@ -1,28 +1,49 @@
-// import nodemailer from "nodemailer";
-
-// /* ================= CREATE TRANSPORTER ================= */
-// const createTransporter = () => {
-//     return nodemailer.createTransport({
-//         host: "smtp.gmail.com",
-//         port: 587,          // 🔥 use 587 instead of 465
-//         secure: false,      // false for 587
-//         requireTLS: true,
-//         auth: {
-//             user: process.env.SMTP_EMAIL,
-//             pass: process.env.SMTP_PASS,
-//         },
-//     });
-// }
-
+import nodemailer from "nodemailer";
 import { Resend } from "resend";
+
+/* ================= CREATE NODEMAILER TRANSPORTER ================= */
+const createTransporter = () => {
+    return nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        requireTLS: true,
+        auth: {
+            user: process.env.SMTP_EMAIL,
+            pass: process.env.SMTP_PASS,
+        },
+    });
+};
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+/* ================= MAIN SEND FUNCTION ================= */
 export const sendMail = async ({ to, subject, html }) => {
+
+    /* ---------- TRY NODEMAILER FIRST ---------- */
+    if (process.env.SMTP_EMAIL && process.env.SMTP_PASS) {
+        try {
+            const transporter = createTransporter();
+
+            const info = await transporter.sendMail({
+                from: `"Product Expiry" <${process.env.SMTP_EMAIL}>`,
+                to,
+                subject,
+                html,
+            });
+
+            console.log("✅ Email sent using Nodemailer:", info.messageId);
+            return { success: true, provider: "nodemailer" };
+
+        } catch (error) {
+            console.error("❌ Nodemailer failed:", error.message);
+            console.log("🔁 Switching to Resend...");
+        }
+    }
+
+    /* ---------- FALLBACK TO RESEND ---------- */
     if (!process.env.RESEND_API_KEY) {
-        const msg = "RESEND_API_KEY is not set in environment variables.";
-        console.error("❌ Email error:", msg);
-        throw new Error(msg);
+        throw new Error("Both Nodemailer and Resend configuration missing.");
     }
 
     try {
@@ -33,18 +54,12 @@ export const sendMail = async ({ to, subject, html }) => {
             html,
         });
 
-        // Log the response for debugging (don't log twice; sendEmailNotification will log the final result)
-        console.log(`   📬 Resend API response:`, {
-            id: data.id || 'no-id',
-            from: data.from || 'no-from',
-            to: to,
-            status: 'sent'
-        });
-        return data;
+        console.log("✅ Email sent using Resend:", data.id);
+        return { success: true, provider: "resend" };
+
     } catch (error) {
-        console.error("❌ Email error:", error?.message || error);
-        // rethrow so callers can react to failures
-        throw error;
+        console.error("❌ Resend also failed:", error.message);
+        throw new Error("Both email services failed.");
     }
 };
 
