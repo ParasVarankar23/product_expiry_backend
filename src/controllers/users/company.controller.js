@@ -506,7 +506,7 @@ export const getDashboardStats = async (req, res) => {
         // Count users by role
         const adminUsers = await User.countDocuments({ role: "admin" });
         const managerUsers = await User.countDocuments({ role: "manager" });
-        const employeeUsers = await User.countDocuments({ role: "employee" });
+        const userUsers = await User.countDocuments({ role: "user" });
 
         // Count companies by plan
         const companiesByPlan = await companyModel.aggregate([
@@ -542,7 +542,7 @@ export const getDashboardStats = async (req, res) => {
                     byRole: {
                         admin: adminUsers,
                         manager: managerUsers,
-                        employee: employeeUsers
+                        user: userUsers
                     }
                 }
             }
