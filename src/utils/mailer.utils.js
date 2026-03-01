@@ -8,6 +8,7 @@ const createTransporter = () => {
         port: 587,
         secure: false,
         requireTLS: true,
+        rejectUnauthorized: false, // Handle self-signed certificates
         auth: {
             user: process.env.SMTP_EMAIL,
             pass: process.env.SMTP_PASS,
